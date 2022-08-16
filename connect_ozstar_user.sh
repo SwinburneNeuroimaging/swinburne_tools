@@ -38,7 +38,8 @@ else
         echo '  1) the username provided in the command-line ('${1}') was incorrect. Please close this terminal, open a new one, and run the command with the correct username.'
         echo '  2) the first two passwords entered were incorrect. Please double-check your password before trying for the 3rd time.'
         echo 'Notice that a third failure will block access from this desktop to OzStar for 24 hours. When trying to connect, OzStar will display the error message "read: Connection reset by peer".'
-        echo 'If you must gain access urgently, please contact me on SNI Slack (Oren Civier) or contact Swinburne IT Servicedesk (servicedesk@swin.edu.au)'
+        echo 'If you must gain access urgently, please contact OzStar support (hpc-support@swin.edu.au) with your username, and notify them you are blocked'
+	echo 'For further assistance, you may also contect Swinburne Neuroimaging informatics fellow (ocivier@swin.edu.au)
         echo '=================='
 	      echo
 
