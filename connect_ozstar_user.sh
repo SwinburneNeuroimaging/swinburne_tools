@@ -27,7 +27,7 @@ else
         # use OzStar rather than farnarkle1.hpc.swin.edu.au or farnarkle2.hpc.swin.edu.au because sometimes one of them is blocked for logins
         export SERVER=ozstar.swin.edu.au
 
-	      echo
+	echo
         echo '=================='
         echo 'IMPORTANT NOTE:'
         echo 'If you are prompted to enter your password three times in a row without any text printed in between, i.e.:'
@@ -39,9 +39,9 @@ else
         echo '  2) the first two passwords entered were incorrect. Please double-check your password before trying for the 3rd time.'
         echo 'Notice that a third failure will block access from this desktop to OzStar for 24 hours. When trying to connect, OzStar will display the error message "read: Connection reset by peer".'
         echo 'If you must gain access urgently, please contact OzStar support (hpc-support@swin.edu.au) with your username, and notify them you are blocked'
-	echo 'For further assistance, you may also contect Swinburne Neuroimaging informatics fellow (ocivier@swin.edu.au)
+	echo 'For further assistance, you may also contect Swinburne Neuroimaging informatics fellow (ocivier@swin.edu.au)'
         echo '=================='
-	      echo
+	echo
 
         mkdir -p /home/$1
         for dir in /fred /dagg /home/$1
