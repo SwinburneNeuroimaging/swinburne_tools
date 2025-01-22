@@ -24,6 +24,8 @@ If you get a pop-up window 'See txt and images copied to the clipboard', click '
 
 Once the VM has started, click on the 'LXTerminal' icon at the bottom left corner of the browser window.
 
+![plot](./VM_terminal_screenshot.png)
+
 Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your ozstar username and password when prompted:
 
 ```
