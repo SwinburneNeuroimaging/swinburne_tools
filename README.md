@@ -4,7 +4,7 @@ Tools specific to users associated with Swinburne University of Technology
 # Connecting Nectar VM to ozstar
 Go to https://desktop.rc.nectar.org.au/home/
 
-Select 'Login VIA AAF (Australia)'
+Select 'Login VIA AAF (Australia)' or 'Australia Access Federation'
 
 Select your organisation
 
