@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# See https://stackoverflow.com/a/78631033 for how to get a direct link to this script
+
 read -p "Enter ozstar username: " OZSTAR_USER
 
 ssh-keygen -t rsa -N "" -f $HOME/.ssh/id_rsa >/dev/null 2>&1
