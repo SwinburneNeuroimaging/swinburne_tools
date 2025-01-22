@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# See https://stackoverflow.com/a/78631033 for how to get a direct link to this script
+# See https://stackoverflow.com/a/78631033 for how to get a direct link to this script (change 'blob' in url to 'raw')
 
 read -p "Enter ozstar username: " OZSTAR_USER
 
