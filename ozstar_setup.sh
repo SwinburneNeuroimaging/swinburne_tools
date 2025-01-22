@@ -20,4 +20,4 @@ echo connect /dagg
 sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/dagg /dagg
 echo connect /home/$OZSTAR_USER
 mkdir -p /home/$OZSTAR_USER
-sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/home/$1 /home/$1
+sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/home/$OZSTAR_USER /home/$OZSTAR_USER
