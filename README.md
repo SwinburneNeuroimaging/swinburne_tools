@@ -26,7 +26,7 @@ Once the VM has started, click on the 'LXTerminal' icon at the bottom left corne
 
 ![plot](./VM_terminal_screenshot.png)
 
-Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your ozstar username and password when prompted:
+Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your <ins>ozstar</ins> username and password when prompted:
 
 ```
 curl -Ls https://github.com/SwinburneNeuroimaging/swinburne_tools/raw/refs/heads/main/ozstar_setup.sh > /tmp/tmp.sh; bash /tmp/tmp.sh
