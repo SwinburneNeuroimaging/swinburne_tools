@@ -5,7 +5,7 @@
 read -p "Enter ozstar username: " OZSTAR_USER
 
 ssh-keygen -t rsa -N "" -f $HOME/.ssh/id_rsa <<<y >/dev/null 2>&1
-ssh-copy-id  -o StrictHostKeyChecking=no -i $HOME/.ssh/id_rsa "$OZSTAR_USER"@ozstar.swin.edu.au  
+ssh-copy-id  -o LogLevel=QUIET -o StrictHostKeyChecking=no -i $HOME/.ssh/id_rsa "$OZSTAR_USER"@ozstar.swin.edu.au  
 
 sudo mkdir -p /fred
 sudo mkdir -p /dagg
