@@ -31,3 +31,10 @@ Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter yo
 ```
 curl -Ls https://raw.githubusercontent.com/SwinburneNeuroimaging/swinburne_tools/main/ozstar_setup.sh > /tmp/tmp.sh; bash /tmp/tmp.sh
 ```
+This only has to be run once when the virtual machine is created. 
+
+Sometimes the connection to the ozstar filesystem will be dropped (this will happen if the machine gets 'shelved' for instance). You can run the command 
+```
+reconnect_ozstar
+```
+in a terminal to reconnect to ozstar at any time.
