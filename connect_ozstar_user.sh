@@ -49,7 +49,7 @@ else
                 echo
                 mountpoint $dir > /dev/null
                 # the above returns 1 if the directory is not mounted
-                if [ $? -eq 1 ]
+                if [ $? -eq 32 ]
                 then
                         echo mapping $dir to $dir on OzStar -
                         sshfs -o $SSHFS_OPTS $1@$SERVER:$dir $dir && (echo SUCCESS!)
