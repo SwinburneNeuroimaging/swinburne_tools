@@ -42,9 +42,8 @@ in a terminal to reconnect to ozstar at any time.
 # Using the mne coreg utility
 
 1. This first step only needs to be done once on a new virtual machine. Click on the menu button on the bottom left corner of the screen and navigate to the 'mneextended 1.1.0' link. 
-<img width="740" height="641" alt="mneextended_screenshot" src="https://github.com/user-attachments/assets/5bf49ca9-9e7a-4949-9a4e-dc291718f38d" />
+<img width="370" height="320" alt="mneextended_screenshot" src="https://github.com/user-attachments/assets/5bf49ca9-9e7a-4949-9a4e-dc291718f38d" />
 
-![plot](./VM_terminal_screenshot.png)
 
 Clicking on this will open a terminal and a new container will be downloaded. When this has finished, close this terminal.
 
