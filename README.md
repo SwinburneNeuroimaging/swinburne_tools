@@ -38,3 +38,28 @@ Sometimes the connection to the ozstar filesystem will be dropped (this will hap
 reconnect_ozstar
 ```
 in a terminal to reconnect to ozstar at any time.
+
+# Using the mne coreg utility
+
+1. This first step only needs to be done once on a new virtual machine. Click on the menu button on the bottom left corner of the screen and navigate to the 'mneextended 1.1.0' link. 
+<img width="740" height="641" alt="mneextended_screenshot" src="https://github.com/user-attachments/assets/5bf49ca9-9e7a-4949-9a4e-dc291718f38d" />
+
+![plot](./VM_terminal_screenshot.png)
+
+Clicking on this will open a terminal and a new container will be downloaded. When this has finished, close this terminal.
+
+2. Open a new terminal (see 'LXTerminal' above) and copy and paste the following:
+
+   ```
+   apptainer  shell --bind /fred,/dagg/public/neuro,/home /cvmfs/neurodesk.ardc.edu.au/containers/mneextended_1.1.0_20220819/mneextended_1.1.0_20220819.simg
+   ```
+3. Then copy and paste the following:
+   ```
+   source /opt/miniconda-4.7.12/etc/profile.d/conda.sh
+   conda activate mne-extended
+   ```
+4. Finally, start the mne coregistration gui with the following, where ```SUBJECTS_DIR``` should be something like ```/fred/ozxxx/freesurfer/subjects```
+   ```
+   mne coreg -d SUBJECTS_DIR
+   ```
+   You can also do ```mne coreg --help``` for other command line options. [Note this can take a long time to start]
