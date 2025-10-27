@@ -7,12 +7,19 @@ read -p "Enter ozstar username: " OZSTAR_USER
 ssh-keygen -t rsa -N "" -f $HOME/.ssh/id_rsa <<<y >/dev/null 2>&1
 ssh-copy-id  -o LogLevel=QUIET -o StrictHostKeyChecking=no -i $HOME/.ssh/id_rsa "$OZSTAR_USER"@ozstar.swin.edu.au  |& grep -v -e '^$' -e 'INFO'  |& grep -v -e '^$' -e 'logging' |& grep -v -e '^$' -e 'check'
 
-sudo mkdir -p /fred
-sudo mkdir -p /dagg
-sudo mkdir -p /home/$OZSTAR_USER
-sudo chmod a+w /fred
-sudo chmod -R a+w /home/$OZSTAR_USER
-sudo chmod a+w /dagg
+if ! mountpoint -q /fred; then
+    sudo mkdir -p /fred
+    sudo chmod a+w /fred
+fi
+if ! mountpoint -q /dagg; then
+    sudo mkdir -p /dagg
+    sudo chmod a+w /dagg
+fi
+if ! mountpoint -q /home/$OZSTAR_USER; then
+    sudo mkdir -p /home/$OZSTAR_USER
+    sudo chmod -R a+w /home/$OZSTAR_USER
+fi
+
 SSHFS_OPTS=allow_root,ServerAliveInterval=5,ServerAliveCountMax=3
 
 mkdir -p /home/vdiuser/.local/bin
