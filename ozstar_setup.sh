@@ -47,4 +47,6 @@ fi
 
 chmod u+x /home/vdiuser/.local/bin/reconnect_ozstar
 
+echo 'export PATH=$PATH:$HOME/.local/bin' >> $HOME/.bashrc
+
 /home/vdiuser/.local/bin/reconnect_ozstar
