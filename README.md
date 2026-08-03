@@ -41,23 +41,29 @@ in a terminal to reconnect to ozstar at any time.
 
 # Using the mne coreg utility
 
-1. This first step only needs to be done once on a new virtual machine. Click on the menu button on the bottom left corner of the screen and navigate to the 'mneextended 1.1.0' link. 
+1. ~~This first step only needs to be done once on a new virtual machine. Click on the menu button on the bottom left corner of the screen and navigate to the 'mneextended 1.1.0' link.~~
 <img width="370" height="320" alt="mneextended_screenshot" src="https://github.com/user-attachments/assets/5bf49ca9-9e7a-4949-9a4e-dc291718f38d" />
 
 
-Clicking on this will open a terminal and a new container will be downloaded. When this has finished, close this terminal.
+~~Clicking on this will open a terminal and a new container will be downloaded. When this has finished, close this terminal.~~
 
-2. Open a new terminal (see 'LXTerminal' above) and copy and paste the following:
+1. Open a new terminal (see 'LXTerminal' above) and copy and paste the following:
+```
+cp /dagg/public/neuro/containers/mneextended_1.2.2_20221207.sif .
+```
+It may take a few minutes. You only need to do this once on a new virtual machine.
 
+2. In the same terminal, copy and paste the following:
    ```
-   apptainer  shell --bind /fred,/dagg/public/neuro,/home /cvmfs/neurodesk.ardc.edu.au/containers/mneextended_1.1.0_20220819/mneextended_1.1.0_20220819.simg
+   apptainer shell --bind /fred,/dagg/public/neuro,/home  ./mneextended_1.2.2_20221207.sif
    ```
-3. Then copy and paste the following:
+   
+4. Then copy and paste the following:
    ```
    source /opt/miniconda-4.7.12/etc/profile.d/conda.sh
    conda activate mne-extended
    ```
-4. Finally, start the mne coregistration gui with the following, where ```SUBJECTS_DIR``` should be something like ```/fred/ozxxx/freesurfer/subjects```
+5. Finally, start the mne coregistration gui with the following, where ```SUBJECTS_DIR``` should be something like ```/fred/ozxxx/freesurfer/subjects```
    ```
    mne coreg -d SUBJECTS_DIR
    ```
