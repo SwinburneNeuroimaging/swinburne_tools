@@ -141,6 +141,42 @@ else
     echo "Warning: keychain environment file not found at $KEYCHAIN_SH. Agent variables may not be set in this shell."
 fi
 
+# Validate that SSH_AUTH_SOCK actually points at a live socket. keychain
+# tracks the agent it last started/reused by PID in ~/.keychain/, and only
+# checks that a process with that PID is still running -- it does NOT
+# verify the socket file itself still exists. If /tmp was wiped (session
+# recycle, reboot, container rebuild) but the PID got reused by an
+# unrelated process, keychain will happily hand back a dead socket path.
+# If that's happened, wipe the stale state and force a genuinely fresh agent.
+if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+    echo "Warning: keychain's recorded agent socket is stale or missing. Restarting agent..."
+    keychain --stop all &>/dev/null
+    rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
+
+    expect <<EOF
+set timeout 10
+spawn keychain --quiet --agents ssh "$KEY_PATH"
+expect {
+    -nocase "Enter passphrase" {
+        send "$PASS1\r"
+        exp_continue
+    }
+    eof
+}
+EOF
+
+    if [ -f "$KEYCHAIN_SH" ]; then
+        # shellcheck disable=SC1090
+        source "$KEYCHAIN_SH"
+    fi
+
+    if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+        echo "Error: Unable to establish a working keychain/ssh-agent socket. ssh/scp/rclone calls below may prompt for the key passphrase directly." >&2
+    else
+        echo "Fresh agent started successfully."
+    fi
+fi
+
 unset PASS1 PASS2
 echo "Key loaded via keychain. The agent persists across terminals/sessions (until reboot or 'keychain --stop'),"
 echo "so subsequent ssh/scp calls -- including in future shells -- won't re-prompt for the key passphrase."
@@ -449,6 +485,39 @@ for DIR in "${SYNC_DIRS[@]}"; do
         source "$KEYCHAIN_SH"
     fi
 
+    # Validate the socket is actually live -- keychain only confirms the
+    # recorded agent PID is still running, not that its socket file still
+    # exists. If /tmp was cleared since the agent was started (session
+    # recycle, reboot) but the PID got reused by something else, keychain
+    # will hand back a path to a socket that no longer exists. In that
+    # case, clear the stale state and start a genuinely fresh agent,
+    # prompting interactively for the key passphrase if needed.
+    if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
+        keychain --stop all &>/dev/null
+        rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
+
+        expect -c "
+            set timeout 15
+            spawn keychain --quiet --agents ssh \"$KEY_PATH\"
+            expect {
+                -nocase \"Enter passphrase\" {
+                    interact
+                }
+                eof
+            }
+        "
+
+        if [ -f "$KEYCHAIN_SH" ]; then
+            # shellcheck disable=SC1090
+            source "$KEYCHAIN_SH"
+        fi
+
+        if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+            echo "Error: Still no working agent socket for $DIR. rclone mount below will likely fail to authenticate." >&2
+        fi
+    fi
+
     expect <<OUTER_EOF
     set timeout 20
     spawn env SSH_AUTH_SOCK="$SSH_AUTH_SOCK" bash -c "$RCLONE_CMD"
@@ -501,10 +570,38 @@ if [ "$USE_AUTO_2FA" = true ]; then
 
 # Custom automated shortcut to SSH into your remote 2FA host
 sshoz() {
+    local KEY_PATH="$HOME/.ssh/id_ed25519"
+
     # Re-attach to the persistent keychain-managed ssh-agent in this shell
     local KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
     if [ -f "$KEYCHAIN_SH" ]; then
         source "$KEYCHAIN_SH"
+    fi
+
+    # Validate the socket is actually live -- keychain only confirms the
+    # recorded agent PID is still running, not that its socket file still
+    # exists (it can go stale across session/container recycles). If
+    # that's happened, clear the stale state and start a fresh agent,
+    # prompting interactively for the passphrase if needed.
+    if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
+        keychain --stop all &>/dev/null
+        rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
+
+        expect -c "
+            set timeout 15
+            spawn keychain --quiet --agents ssh \"$KEY_PATH\"
+            expect {
+                -nocase \"Enter passphrase\" {
+                    interact
+                }
+                eof
+            }
+        "
+
+        if [ -f "$KEYCHAIN_SH" ]; then
+            source "$KEYCHAIN_SH"
+        fi
     fi
 
     local SECRET_FILE="$HOME/.ssh/2fa_secret.gpg"
