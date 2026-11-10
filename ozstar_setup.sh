@@ -400,9 +400,9 @@ printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
 # Append directory arrays and operational logic safely
 cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
 SYNC_DIRS=(
-    "/home/${OZSTAR_USER}/documents"
-    "/home/${OZSTAR_USER}/projects"
-    "/home/${OZSTAR_USER}/backups"
+    "/fred"
+    "/dagg"
+    "/home/${OZSTAR_USER}"
 )
 
 for DIR in "${SYNC_DIRS[@]}"; do
