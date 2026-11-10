@@ -208,7 +208,7 @@ if [ "$USE_AUTO_2FA" = false ]; then
 
     expect <<EOF
 set timeout 30
-spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "\$HOME/2fa_secret.gpg" ]'
+spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
@@ -238,7 +238,7 @@ EOF
 
         expect <<EOF
 set timeout 30
-spawn scp -i "$KEY_PATH" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg" "$HOME/.ssh/2fa_secret.gpg"
+spawn scp -i "$KEY_PATH" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg} "$HOME/.ssh/2fa_secret.gpg"
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
@@ -281,7 +281,7 @@ else
 
     expect <<EOF
 set timeout 30
-spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "\$HOME/2fa_secret.gpg" ]'
+spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
@@ -313,7 +313,7 @@ EOF
 
         expect <<EOF
 set timeout 30
-spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg"
+spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg}
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
@@ -365,9 +365,9 @@ printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
 # Append directory arrays and operational logic safely
 cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
 SYNC_DIRS=(
-    "/home/${OZSTAR_USER}/documents"
-    "/home/${OZSTAR_USER}/projects"
-    "/home/${OZSTAR_USER}/backups"
+    "/fred"
+    "/dagg"
+    "/home/${OZSTAR_USER}"
 )
 
 for DIR in "${SYNC_DIRS[@]}"; do
