@@ -62,7 +62,7 @@ done
 FULL_REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
 
 # Optional 2FA Setup String
-read -rs -p "Enter your remote host 2FA Setup String (Leave blank to input 2FA codes manually later): " TFA_SECRET
+read -rs -p "Enter your ozstar 2FA Setup String (Leave blank to input 2FA codes manually later): " TFA_SECRET
 echo ""
 
 USE_AUTO_2FA=false
@@ -410,11 +410,16 @@ for DIR in "${SYNC_DIRS[@]}"; do
     echo "Mounting Path: $DIR"
     echo "-------------------------------------------------------"
 
-    touch "$DIR" &>/dev/null
-    if mountpoint -q "$DIR" &>/dev/null || [ -d "$DIR" ]; then
-        fusermount3 -u "$DIR" &>/dev/null
+    if [ -d "$DIR" ]; then
+        echo "Directory $DIR already exists. Skipping creation."
+        if mountpoint -q "$DIR" &>/dev/null; then
+            fusermount3 -u "$DIR" &>/dev/null
+        fi
+    else
+        echo "Directory $DIR does not exist. Creating it (requires sudo for top-level paths)..."
+        sudo mkdir -p "$DIR"
+        sudo chown "$(whoami)":"$(whoami)" "$DIR"
     fi
-    mkdir -p "$DIR"
 
     CURRENT_AUTO_2FA="$USE_AUTO_2FA"
     if [ "$CURRENT_AUTO_2FA" = true ]; then
