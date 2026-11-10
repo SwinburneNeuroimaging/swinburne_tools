@@ -256,7 +256,7 @@ EOF
         STEP3B_PULL_EXP=$(mktemp /tmp/setup_ssh_step3b_pull.XXXXXX.exp)
         cat > "$STEP3B_PULL_EXP" <<EOF
 set timeout 30
-spawn scp -i "$KEY_PATH" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg} "$HOME/.ssh/2fa_secret.gpg"
+spawn scp -i "$KEY_PATH" {${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg} "$HOME/.ssh/2fa_secret.gpg"
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
@@ -346,7 +346,7 @@ EOF
         STEP3B_PUSH_EXP=$(mktemp /tmp/setup_ssh_step3b_push.XXXXXX.exp)
         cat > "$STEP3B_PUSH_EXP" <<EOF
 set timeout 30
-spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg}
+spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg}
 
 expect {
     -nocase -re "(verification code|otp|one-time password|token):" {
