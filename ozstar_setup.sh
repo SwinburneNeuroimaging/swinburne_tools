@@ -28,14 +28,14 @@ done
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     echo "Missing dependencies found: ${MISSING_PKGS[*]}"
     echo "Installing missing packages via apt... (Root/sudo privileges required)"
-    
+
     sudo apt-get update -y && \
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${MISSING_PKGS[@]}"
-    
+
     for pkg in "${MISSING_PKGS[@]}"; do
         if ! command -v "$pkg" &> /dev/null && ! dpkg -s "$pkg" &> /dev/null; then
             echo "Error: Failed to install '$pkg'. Please install it manually." >&2
-            return 1 2>/dev/null || exit 1 
+            return 1 2>/dev/null || exit 1
         fi
     done
     echo "All dependencies successfully installed."
@@ -168,7 +168,16 @@ fi
 echo "Initiating ssh-copy-id..."
 echo ""
 
-expect <<EOF
+# NOTE: the expect script is written to a temp file and invoked as
+# `expect /path/to/file` (rather than piped in via a `<<EOF` heredoc on
+# stdin). This matters because `interact` hands control of the *invoking
+# process's* stdin/stdout over to the spawned program -- if that stdin is
+# a heredoc, it is already exhausted/closed by the time `interact` runs,
+# so the manual-password fallback would silently fail to let you type
+# anything. Writing to a file instead leaves the real terminal's stdin
+# untouched and available to `interact`.
+STEP3_EXP=$(mktemp /tmp/setup_ssh_step3.XXXXXX.exp)
+cat > "$STEP3_EXP" <<EOF
 set timeout 30
 spawn ssh-copy-id -i "${KEY_PATH}.pub" "$FULL_REMOTE_TARGET"
 
@@ -191,13 +200,18 @@ expect {
     eof
 }
 EOF
+expect "$STEP3_EXP"
+rm -f "$STEP3_EXP"
 echo ""
 
 # -------------------------------------------------------------------------
 # Step 3b: Reconcile the 2FA Secret Between Local and Remote Host
 #          (Every ssh/scp call below is wrapped in the same expect-driven
 #          OTP-handling logic used in Step 3: auto-send $OTP_CODE when
-#          USE_AUTO_2FA is true, otherwise fall through to manual "interact".)
+#          USE_AUTO_2FA is true, otherwise fall through to manual "interact".
+#          As in Step 3, each expect script is written to a temp file and
+#          run as `expect file` rather than piped via a stdin heredoc, so
+#          that `interact` has access to the real terminal stdin.)
 # -------------------------------------------------------------------------
 echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
 
@@ -206,7 +220,8 @@ if [ "$USE_AUTO_2FA" = false ]; then
     # already has one saved from a previous run, and pull it down if so.
     echo "No local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for ~/2fa_secret.gpg..."
 
-    expect <<EOF
+    STEP3B_CHECK_EXP=$(mktemp /tmp/setup_ssh_step3b_check.XXXXXX.exp)
+    cat > "$STEP3B_CHECK_EXP" <<EOF
 set timeout 30
 spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
@@ -231,12 +246,15 @@ expect {
 catch wait result
 exit [lindex \$result 3]
 EOF
+    expect "$STEP3B_CHECK_EXP"
     REMOTE_FILE_EXISTS=$?
+    rm -f "$STEP3B_CHECK_EXP"
 
     if [ "$REMOTE_FILE_EXISTS" -eq 0 ]; then
         echo "Found 2fa_secret.gpg on remote host. Copying to local machine..."
 
-        expect <<EOF
+        STEP3B_PULL_EXP=$(mktemp /tmp/setup_ssh_step3b_pull.XXXXXX.exp)
+        cat > "$STEP3B_PULL_EXP" <<EOF
 set timeout 30
 spawn scp -i "$KEY_PATH" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg} "$HOME/.ssh/2fa_secret.gpg"
 
@@ -261,7 +279,9 @@ expect {
 catch wait result
 exit [lindex \$result 3]
 EOF
+        expect "$STEP3B_PULL_EXP"
         SCP_STATUS=$?
+        rm -f "$STEP3B_PULL_EXP"
 
         if [ "$SCP_STATUS" -eq 0 ]; then
             GPG_ENC_FILE="$HOME/.ssh/2fa_secret.gpg"
@@ -284,7 +304,8 @@ else
     # expired by the time execution reaches here.
     OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
 
-    expect <<EOF
+    STEP3B_CHECK2_EXP=$(mktemp /tmp/setup_ssh_step3b_check2.XXXXXX.exp)
+    cat > "$STEP3B_CHECK2_EXP" <<EOF
 set timeout 30
 spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
@@ -309,7 +330,9 @@ expect {
 catch wait result
 exit [lindex \$result 3]
 EOF
+    expect "$STEP3B_CHECK2_EXP"
     REMOTE_FILE_EXISTS=$?
+    rm -f "$STEP3B_CHECK2_EXP"
 
     if [ "$REMOTE_FILE_EXISTS" -eq 0 ]; then
         echo "Remote host already has 2fa_secret.gpg. Leaving it unchanged."
@@ -320,7 +343,8 @@ EOF
         # consumed enough wall-clock time to roll over to the next TOTP window.
         OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
 
-        expect <<EOF
+        STEP3B_PUSH_EXP=$(mktemp /tmp/setup_ssh_step3b_push.XXXXXX.exp)
+        cat > "$STEP3B_PUSH_EXP" <<EOF
 set timeout 30
 spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg}
 
@@ -345,7 +369,9 @@ expect {
 catch wait result
 exit [lindex \$result 3]
 EOF
+        expect "$STEP3B_PUSH_EXP"
         SCP_STATUS=$?
+        rm -f "$STEP3B_PUSH_EXP"
 
         if [ "$SCP_STATUS" -eq 0 ]; then
             echo "Copied $GPG_ENC_FILE to ${FULL_REMOTE_TARGET}:~/2fa_secret.gpg"
@@ -451,9 +477,9 @@ if [ "$USE_AUTO_2FA" = true ]; then
         echo "sshoz function already exists in $MY_BASHRC. Skipping injection."
     else
         echo "Appending sshoz function to $MY_BASHRC..."
-        
+
         TEMP_FUNC_FILE=$(mktemp)
-        
+
         cat << 'BASHRC_FUNC' > "$TEMP_FUNC_FILE"
 
 # Custom automated shortcut to SSH into your remote 2FA host
@@ -504,7 +530,7 @@ BASHRC_FUNC
         sed -i "s|TARGET_PLACEHOLDER|$FULL_REMOTE_TARGET|g" "$TEMP_FUNC_FILE"
         cat "$TEMP_FUNC_FILE" >> "$MY_BASHRC"
         rm -f "$TEMP_FUNC_FILE"
-        
+
         echo "Shortcut added successfully!"
     fi
 else
