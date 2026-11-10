@@ -11,7 +11,7 @@ REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
 MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 
 # Required local packages
-REQUIRED_PKGS=("oathtool" "gpg" "expect" "rclone" "fuse3" "keychain")
+REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain")
 
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
@@ -171,7 +171,7 @@ EOF
     fi
 
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-        echo "Error: Unable to establish a working keychain/ssh-agent socket. ssh/scp/rclone calls below may prompt for the key passphrase directly." >&2
+        echo "Error: Unable to establish a working keychain/ssh-agent socket. ssh/scp/sshfs calls below may prompt for the key passphrase directly." >&2
     else
         echo "Fresh agent started successfully."
     fi
@@ -471,20 +471,9 @@ for DIR in "${SYNC_DIRS[@]}"; do
         fi
     fi
 
-    # NOTE: ssh_key_path is deliberately omitted here. rclone's SFTP backend
-    # has a known bug (rclone/rclone#6791) where supplying key_file together
-    # with key_use_agent=true causes it to try to filter the agent down to
-    # the one key matching <key_file>.pub -- and that lookup/filter logic
-    # fails for passphrase-protected keys, resulting in publickey auth never
-    # being registered at all ("attempted methods [none], no supported
-    # methods remain"), even though the agent holds a perfectly usable key.
-    # Since the agent only holds this one identity, there's no need to
-    # filter -- key_use_agent=true alone is sufficient and avoids the bug.
-    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},key_use_agent=true:${DIR} ${DIR} --vfs-cache-mode full --daemon"
-
     # Re-attach this (sub)shell to the persistent keychain-managed ssh-agent
-    # so SSH_AUTH_SOCK is set before rclone is spawned. Without this,
-    # rclone's SFTP backend would have no agent to talk to at all.
+    # so SSH_AUTH_SOCK is set before sshfs is spawned, letting it use the
+    # already-unlocked key instead of needing the passphrase typed again.
     KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
     if [ -f "$KEYCHAIN_SH" ]; then
         # shellcheck disable=SC1090
@@ -520,13 +509,18 @@ for DIR in "${SYNC_DIRS[@]}"; do
         fi
 
         if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-            echo "Error: Still no working agent socket for $DIR. rclone mount below will likely fail to authenticate." >&2
+            echo "Error: Still no working agent socket for $DIR. sshfs mount below will likely fail to authenticate." >&2
         fi
     fi
 
+    # sshfs via the system OpenSSH client -- it picks up SSH_AUTH_SOCK (and
+    # thus the already-unlocked keychain-managed key) the same way plain
+    # ssh/scp do, with no equivalent of rclone's key_file+key_use_agent bug.
+    SSHFS_CMD="env SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK\" sshfs -i \"$KEY_PATH\" ${OZSTAR_USER}@${REMOTE_HOST}:${DIR} ${DIR} -o workaround=rename -o reconnect -o ServerAliveInterval=15"
+
     expect <<OUTER_EOF
     set timeout 20
-    spawn env SSH_AUTH_SOCK="$SSH_AUTH_SOCK" bash -c "$RCLONE_CMD"
+    spawn bash -c "$SSHFS_CMD"
 
     expect {
         -nocase -re "(verification code|otp|one-time password|token):" {
