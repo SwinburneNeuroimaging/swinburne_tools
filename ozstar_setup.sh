@@ -435,11 +435,23 @@ for DIR in "${SYNC_DIRS[@]}"; do
         fi
     fi
 
-    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},ssh_key_path=${KEY_PATH}:${DIR} ${DIR} --vfs-cache-mode full --daemon"
+    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},ssh_key_path=${KEY_PATH},key_use_agent=true:${DIR} ${DIR} --vfs-cache-mode full --daemon"
+
+    # Re-attach this (sub)shell to the persistent keychain-managed ssh-agent
+    # so SSH_AUTH_SOCK is set before rclone is spawned. Without this,
+    # rclone's SFTP backend tries to read/decrypt $KEY_PATH itself (it has
+    # no passphrase to do so) instead of asking the already-unlocked agent,
+    # which results in "attempted methods [none], no supported methods
+    # remain" since publickey never gets registered as usable.
+    KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
+    if [ -f "$KEYCHAIN_SH" ]; then
+        # shellcheck disable=SC1090
+        source "$KEYCHAIN_SH"
+    fi
 
     expect <<OUTER_EOF
     set timeout 20
-    spawn bash -c "$RCLONE_CMD"
+    spawn env SSH_AUTH_SOCK="$SSH_AUTH_SOCK" bash -c "$RCLONE_CMD"
 
     expect {
         -nocase -re "(verification code|otp|one-time password|token):" {
