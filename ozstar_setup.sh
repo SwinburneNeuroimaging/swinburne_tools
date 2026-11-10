@@ -2,51 +2,409 @@
 
 # See https://stackoverflow.com/a/78631033 for how to get a direct link to this script (change 'blob' in url to 'raw')
 
-read -p "Enter ozstar username: " OZSTAR_USER
-
-ssh-keygen -t rsa -N "" -f $HOME/.ssh/id_rsa <<<y >/dev/null 2>&1
-ssh-copy-id  -o LogLevel=QUIET -o StrictHostKeyChecking=no -i $HOME/.ssh/id_rsa "$OZSTAR_USER"@ozstar.swin.edu.au  |& grep -v -e '^$' -e 'INFO'  |& grep -v -e '^$' -e 'logging' |& grep -v -e '^$' -e 'check'
-
-if ! mountpoint -q /fred; then
-    sudo mkdir -p /fred
-    sudo chmod a+w /fred
-fi
-if ! mountpoint -q /dagg; then
-    sudo mkdir -p /dagg
-    sudo chmod a+w /dagg
-fi
-if ! mountpoint -q /home/$OZSTAR_USER; then
-    sudo mkdir -p /home/$OZSTAR_USER
-    sudo chmod -R a+w /home/$OZSTAR_USER
-fi
-
-SSHFS_OPTS=allow_root,ServerAliveInterval=5,ServerAliveCountMax=3
-
+# =========================================================================
+# Configuration
+# =========================================================================
+REMOTE_HOST="ozstar.swin.edu.au" # <-- Hardcode your remote server IP or hostname here
+KEY_PATH="$HOME/.ssh/id_ed25519"
+GPG_ENC_FILE="$HOME/.ssh/2fa_secret.gpg"
 mkdir -p /home/vdiuser/.local/bin
-echo "#!/bin/bash
+REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
+MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 
-if ! mountpoint -q /fred; then
-    echo connecting /fred
-    sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/fred /fred
+# Required local packages
+REQUIRED_PKGS=("oathtool" "gpg" "expect" "rclone" "fuse3" "keychain")
+
+# -------------------------------------------------------------------------
+# Step 0: Ensure Required Packages are Installed (APT)
+# -------------------------------------------------------------------------
+echo "=== Step 0: Checking System Dependencies ==="
+
+MISSING_PKGS=()
+for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! command -v "$pkg" &> /dev/null && ! dpkg -s "$pkg" &> /dev/null; then
+        MISSING_PKGS+=("$pkg")
+    fi
+done
+
+if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+    echo "Missing dependencies found: ${MISSING_PKGS[*]}"
+    echo "Installing missing packages via apt... (Root/sudo privileges required)"
+    
+    sudo apt-get update -y && \
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${MISSING_PKGS[@]}"
+    
+    for pkg in "${MISSING_PKGS[@]}"; do
+        if ! command -v "$pkg" &> /dev/null && ! dpkg -s "$pkg" &> /dev/null; then
+            echo "Error: Failed to install '$pkg'. Please install it manually." >&2
+            return 1 2>/dev/null || exit 1 
+        fi
+    done
+    echo "All dependencies successfully installed."
 else
-    echo /fred already connected
+    echo "All required dependencies are already installed."
 fi
-if ! mountpoint -q /dagg; then
-    echo connecting /dagg
-    sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/dagg /dagg
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 1: Obtain Remote Username and Optional 2FA String
+# -------------------------------------------------------------------------
+echo "=== Step 1: User & 2FA Configuration ==="
+
+# Obtain username at runtime
+while true; do
+    read -p "Enter ozstar username: " OZSTAR_USER
+    if [ -n "$OZSTAR_USER" ]; then
+        break
+    fi
+    echo "Error: Username cannot be empty."
+done
+
+# Build the complete target string
+FULL_REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
+
+# Optional 2FA Setup String
+read -rs -p "Enter your remote host 2FA Setup String (Leave blank to input 2FA codes manually later): " TFA_SECRET
+echo ""
+
+USE_AUTO_2FA=false
+if [ -n "$TFA_SECRET" ]; then
+    echo "Encrypting 2FA secret..."
+    echo "$TFA_SECRET" | gpg --symmetric --output "$GPG_ENC_FILE" --yes
+    unset TFA_SECRET
+    echo "Saved encrypted secret to $GPG_ENC_FILE"
+    USE_AUTO_2FA=true
 else
-    echo /dagg already connected
+    echo "No 2FA setup string provided. You will be prompted for your 2FA code during connections."
+    rm -f "$GPG_ENC_FILE"
 fi
-if ! mountpoint -q /home/$OZSTAR_USER; then
-    echo connecting /home/$OZSTAR_USER
-    sshfs  -o IdentityFile=$HOME/.ssh/id_rsa -o $SSHFS_OPTS $OZSTAR_USER@ozstar.swin.edu.au:/home/$OZSTAR_USER /home/$OZSTAR_USER
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 2: Generate the SSH Key (Enforcing Non-Empty Passphrase)
+# -------------------------------------------------------------------------
+echo "=== Step 2: SSH Key Generation ==="
+if [ -f "$KEY_PATH" ]; then
+    read -p "An SSH key already exists at $KEY_PATH. Overwrite? (y/n): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Aborting key generation."
+        return 1 2>/dev/null || exit 1
+    fi
+    rm -f "$KEY_PATH" "${KEY_PATH}.pub"
+fi
+
+while true; do
+    read -rs -p "Enter a new SSH passphrase (cannot be empty): " PASS1
+    echo ""
+    if [ -z "$PASS1" ]; then
+        echo "Error: Passphrase cannot be empty."
+        continue
+    fi
+
+    read -rs -p "Confirm SSH passphrase: " PASS2
+    echo ""
+    if [ "$PASS1" != "$PASS2" ]; then
+        echo "Error: Passphrases do not match."
+        continue
+    fi
+    break
+done
+
+ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
+echo "$PASS1" | ssh-keygen -p -f "$KEY_PATH" -N "$PASS1" -q
+chmod 600 "$KEY_PATH"
+echo "SSH key generated successfully."
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 2b: Load the New Key into a Persistent Agent via "keychain"
+# -------------------------------------------------------------------------
+echo "=== Step 2b: Loading Key via keychain ==="
+
+echo "Starting/attaching to keychain-managed ssh-agent and adding $KEY_PATH..."
+expect <<EOF
+set timeout 10
+spawn keychain --quiet --agents ssh "$KEY_PATH"
+expect {
+    -nocase "Enter passphrase" {
+        send "$PASS1\r"
+        exp_continue
+    }
+    eof
+}
+EOF
+
+# keychain writes a sourceable file containing SSH_AUTH_SOCK / SSH_AGENT_PID
+KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
+if [ -f "$KEYCHAIN_SH" ]; then
+    # shellcheck disable=SC1090
+    source "$KEYCHAIN_SH"
 else
-    echo /home/$OZSTAR_USER already connected
+    echo "Warning: keychain environment file not found at $KEYCHAIN_SH. Agent variables may not be set in this shell."
 fi
-" > /home/vdiuser/.local/bin/reconnect_ozstar
 
-chmod u+x /home/vdiuser/.local/bin/reconnect_ozstar
+unset PASS1 PASS2
+echo "Key loaded via keychain. The agent persists across terminals/sessions (until reboot or 'keychain --stop'),"
+echo "so subsequent ssh/scp calls -- including in future shells -- won't re-prompt for the key passphrase."
+echo ""
 
-echo 'export PATH=$PATH:$HOME/.local/bin' >> $HOME/.bashrc
+# -------------------------------------------------------------------------
+# Step 3: Copy ID via Expect (Conditional 2FA Handling & Fallback)
+# -------------------------------------------------------------------------
+echo "=== Step 3: Copying SSH Key to $FULL_REMOTE_TARGET ==="
 
-/home/vdiuser/.local/bin/reconnect_ozstar
+OTP_CODE=""
+if [ "$USE_AUTO_2FA" = true ]; then
+    echo "Decrypting 2FA setup string to generate live OTP..."
+    CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+
+    if [ -z "$CODE" ]; then
+        echo "Warning: Failed to decrypt or generate OTP code automatically. Falling back to manual entry."
+        USE_AUTO_2FA=false
+    else
+        OTP_CODE="$CODE"
+        echo "Generated automated OTP Token successfully."
+    fi
+fi
+
+echo "Initiating ssh-copy-id..."
+echo ""
+
+expect <<EOF
+set timeout 30
+spawn ssh-copy-id -i "${KEY_PATH}.pub" "$FULL_REMOTE_TARGET"
+
+expect {
+    -nocase -re "(verification code|otp|one-time password|token):" {
+        if { "$USE_AUTO_2FA" == "true" } {
+            send "$OTP_CODE\r"
+            exp_continue
+        } else {
+            interact
+        }
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    -nocase "password:" {
+        interact
+    }
+    eof
+}
+EOF
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 3b: Reconcile the 2FA Secret Between Local and Remote Host
+# -------------------------------------------------------------------------
+echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
+
+if [ "$USE_AUTO_2FA" = false ]; then
+    # No local setup string was supplied -- check whether the remote host
+    # already has one saved from a previous run, and pull it down if so.
+    echo "No local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for ~/2fa_secret.gpg..."
+
+    if ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "$HOME/2fa_secret.gpg" ]' 2>/dev/null; then
+        echo "Found 2fa_secret.gpg on remote host. Copying to local machine..."
+        if scp -i "$KEY_PATH" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg" "$HOME/.ssh/2fa_secret.gpg"; then
+            GPG_ENC_FILE="$HOME/.ssh/2fa_secret.gpg"
+            USE_AUTO_2FA=true
+            echo "Copied remote 2FA secret to $GPG_ENC_FILE"
+        else
+            echo "Warning: Failed to copy remote 2FA secret file. Continuing without automated 2FA."
+        fi
+    else
+        echo "No 2fa_secret.gpg found in the remote home directory. Continuing without automated 2FA."
+    fi
+else
+    # A local setup string WAS supplied and encrypted into $GPG_ENC_FILE.
+    # If the remote host doesn't already have a copy, push it up now so
+    # future connections (e.g. from other machines) can reuse it.
+    echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
+
+    if ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "$HOME/2fa_secret.gpg" ]' 2>/dev/null; then
+        echo "Remote host already has 2fa_secret.gpg. Leaving it unchanged."
+    else
+        echo "No 2fa_secret.gpg found on remote host. Copying local copy there for future use..."
+        if scp -i "$KEY_PATH" "$GPG_ENC_FILE" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg"; then
+            echo "Copied $GPG_ENC_FILE to ${FULL_REMOTE_TARGET}:~/2fa_secret.gpg"
+        else
+            echo "Warning: Failed to copy 2FA secret to remote host. You can retry this manually later."
+        fi
+    fi
+fi
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 4: Write out the persistent, reusable Remounting Script
+# -------------------------------------------------------------------------
+echo "=== Step 4: Creating Reusable Mount Script ==="
+
+# Initialize the remount file safely
+printf '#!/bin/bash\n# Reusable Mounting Script\n\n' > "$REMOUNT_SCRIPT"
+
+# Inject the configurations safely using robust variable printing
+printf 'REMOTE_HOST="%s"\n' "$REMOTE_HOST" >> "$REMOUNT_SCRIPT"
+printf 'OZSTAR_USER="%s"\n' "$OZSTAR_USER" >> "$REMOUNT_SCRIPT"
+printf 'KEY_PATH="%s"\n' "$KEY_PATH" >> "$REMOUNT_SCRIPT"
+printf 'GPG_ENC_FILE="%s"\n' "$GPG_ENC_FILE" >> "$REMOUNT_SCRIPT"
+printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
+
+# Append directory arrays and operational logic safely
+cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
+SYNC_DIRS=(
+    "/home/${OZSTAR_USER}/documents"
+    "/home/${OZSTAR_USER}/projects"
+    "/home/${OZSTAR_USER}/backups"
+)
+
+for DIR in "${SYNC_DIRS[@]}"; do
+    echo "-------------------------------------------------------"
+    echo "Mounting Path: $DIR"
+    echo "-------------------------------------------------------"
+
+    touch "$DIR" &>/dev/null
+    if mountpoint -q "$DIR" &>/dev/null || [ -d "$DIR" ]; then
+        fusermount3 -u "$DIR" &>/dev/null
+    fi
+    mkdir -p "$DIR"
+
+    CURRENT_AUTO_2FA="$USE_AUTO_2FA"
+    if [ "$CURRENT_AUTO_2FA" = true ]; then
+        if [ -f "$GPG_ENC_FILE" ]; then
+            OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+            if [ -z "$OTP_CODE" ]; then
+                echo "Warning: Token generation failed. Falling back to manual entry for this path."
+                CURRENT_AUTO_2FA=false
+            fi
+        else
+            echo "Warning: Persistent GPG secret file missing. Falling back to manual entry."
+            CURRENT_AUTO_2FA=false
+        fi
+    fi
+
+    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},ssh_key_path=${KEY_PATH}:${DIR} ${DIR} --vfs-cache-mode full --daemon"
+
+    expect <<OUTER_EOF
+    set timeout 20
+    spawn bash -c "$RCLONE_CMD"
+
+    expect {
+        -nocase -re "(verification code|otp|one-time password|token):" {
+            if { "\$CURRENT_AUTO_2FA" == "true" } {
+                send "$OTP_CODE\r"
+                exp_continue
+            } else {
+                interact
+            }
+        }
+        -nocase "password:" {
+            interact
+        }
+        eof
+    }
+OUTER_EOF
+done
+
+echo "=== Mount synchronization script completed ==="
+REMOUNT_BLOCK
+
+chmod +x "$REMOUNT_SCRIPT"
+echo "Persistent script written successfully to: $REMOUNT_SCRIPT"
+echo ""
+
+# -------------------------------------------------------------------------
+# Step 5: Execute the newly written file to trigger initial mounting
+# -------------------------------------------------------------------------
+echo "=== Step 5: Running Mount Operations ==="
+bash "$REMOUNT_SCRIPT"
+
+# -------------------------------------------------------------------------
+# Step 6: Inject automated sshoz shortcut into ~/.bashrc (CONDITIONAL)
+# -------------------------------------------------------------------------
+if [ "$USE_AUTO_2FA" = true ]; then
+    echo ""
+    echo "=== Step 6: Adding sshoz shortcut to $MY_BASHRC ==="
+
+    if grep -q "sshoz()" "$MY_BASHRC"; then
+        echo "sshoz function already exists in $MY_BASHRC. Skipping injection."
+    else
+        echo "Appending sshoz function to $MY_BASHRC..."
+        
+        TEMP_FUNC_FILE=$(mktemp)
+        
+        cat << 'BASHRC_FUNC' > "$TEMP_FUNC_FILE"
+
+# Custom automated shortcut to SSH into your remote 2FA host
+sshoz() {
+    # Re-attach to the persistent keychain-managed ssh-agent in this shell
+    local KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
+    if [ -f "$KEYCHAIN_SH" ]; then
+        source "$KEYCHAIN_SH"
+    fi
+
+    local SECRET_FILE="$HOME/.ssh/2fa_secret.gpg"
+    if [ ! -f "$SECRET_FILE" ]; then
+        echo "Error: Automated 2FA secret file missing ($SECRET_FILE)."
+        echo "Launching standard connection instead..."
+        ssh -Y TARGET_PLACEHOLDER
+        return
+    fi
+
+    local CODE
+    CODE=$(gpg -q -d "$SECRET_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+    if [ -z "$CODE" ]; then
+        echo "Error: Failed to generate 2FA token (GPG decryption failed)."
+        echo "Launching standard connection..."
+        ssh -Y TARGET_PLACEHOLDER
+        return
+    fi
+
+    echo "Generated 2FA Code: $CODE"
+
+    if command -v xclip &> /dev/null; then
+        echo -n "$CODE" | xclip -sel clip
+        echo "(Copied to Clipboard via xclip)"
+    elif command -v wl-copy &> /dev/null; then
+        echo -n "$CODE" | wl-copy
+        echo "(Copied to Clipboard via wl-copy)"
+    elif command -v xsel &> /dev/null; then
+        echo -n "$CODE" | xsel -b
+        echo "(Copied to Clipboard via xsel)"
+    else
+        echo "(Clipboard utility not found. Please type or copy the code manually)"
+    fi
+
+    echo "Connecting to TARGET_PLACEHOLDER..."
+    ssh -Y TARGET_PLACEHOLDER
+}
+BASHRC_FUNC
+
+        sed -i "s|TARGET_PLACEHOLDER|$FULL_REMOTE_TARGET|g" "$TEMP_FUNC_FILE"
+        cat "$TEMP_FUNC_FILE" >> "$MY_BASHRC"
+        rm -f "$TEMP_FUNC_FILE"
+        
+        echo "Shortcut added successfully!"
+    fi
+else
+    echo ""
+    echo "=== Step 6: Skipping sshoz Shortcut ==="
+    echo "Automated 2FA string was not supplied; skipping .bashrc modification."
+fi
+
+# -------------------------------------------------------------------------
+# Step 7: Source the updated configuration natively 
+# -------------------------------------------------------------------------
+echo ""
+echo "=== Step 7: Automatically Sourcing Changes ==="
+if [ -f "$MY_BASHRC" ]; then
+    echo "Sourcing $MY_BASHRC to update active shell..."
+    source "$MY_BASHRC"
+fi
+
+echo ""
+echo "=== Setup Complete ==="
+if [ "$USE_AUTO_2FA" = true ]; then
+    echo "You can now run 'sshoz' directly in this terminal window!"
+fi
