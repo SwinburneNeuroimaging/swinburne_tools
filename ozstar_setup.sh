@@ -279,6 +279,11 @@ else
     # future connections (e.g. from other machines) can reuse it.
     echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
 
+    # Regenerate a fresh OTP right before use -- TOTP codes rotate (typically
+    # every ~30s), and the $OTP_CODE generated back in Step 3 may have
+    # expired by the time execution reaches here.
+    OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+
     expect <<EOF
 set timeout 30
 spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
@@ -310,6 +315,10 @@ EOF
         echo "Remote host already has 2fa_secret.gpg. Leaving it unchanged."
     else
         echo "No 2fa_secret.gpg found on remote host. Copying local copy there for future use..."
+
+        # Regenerate again -- the existence-check ssh call above may have
+        # consumed enough wall-clock time to roll over to the next TOTP window.
+        OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
 
         expect <<EOF
 set timeout 30
@@ -365,9 +374,9 @@ printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
 # Append directory arrays and operational logic safely
 cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
 SYNC_DIRS=(
-    "/fred"
-    "/dagg"
-    "/home/${OZSTAR_USER}"
+    "/home/${OZSTAR_USER}/documents"
+    "/home/${OZSTAR_USER}/projects"
+    "/home/${OZSTAR_USER}/backups"
 )
 
 for DIR in "${SYNC_DIRS[@]}"; do
