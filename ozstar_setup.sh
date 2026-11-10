@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# See https://stackoverflow.com/a/78631033 for how to get a direct link to this script (change 'blob' in url to 'raw')
-
 # =========================================================================
 # Configuration
 # =========================================================================
@@ -197,6 +195,9 @@ echo ""
 
 # -------------------------------------------------------------------------
 # Step 3b: Reconcile the 2FA Secret Between Local and Remote Host
+#          (Every ssh/scp call below is wrapped in the same expect-driven
+#          OTP-handling logic used in Step 3: auto-send $OTP_CODE when
+#          USE_AUTO_2FA is true, otherwise fall through to manual "interact".)
 # -------------------------------------------------------------------------
 echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
 
@@ -205,9 +206,64 @@ if [ "$USE_AUTO_2FA" = false ]; then
     # already has one saved from a previous run, and pull it down if so.
     echo "No local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for ~/2fa_secret.gpg..."
 
-    if ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "$HOME/2fa_secret.gpg" ]' 2>/dev/null; then
+    expect <<EOF
+set timeout 30
+spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "\$HOME/2fa_secret.gpg" ]'
+
+expect {
+    -nocase -re "(verification code|otp|one-time password|token):" {
+        if { "$USE_AUTO_2FA" == "true" } {
+            send "$OTP_CODE\r"
+            exp_continue
+        } else {
+            interact
+        }
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    -nocase "password:" {
+        interact
+    }
+    eof
+}
+catch wait result
+exit [lindex \$result 3]
+EOF
+    REMOTE_FILE_EXISTS=$?
+
+    if [ "$REMOTE_FILE_EXISTS" -eq 0 ]; then
         echo "Found 2fa_secret.gpg on remote host. Copying to local machine..."
-        if scp -i "$KEY_PATH" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg" "$HOME/.ssh/2fa_secret.gpg"; then
+
+        expect <<EOF
+set timeout 30
+spawn scp -i "$KEY_PATH" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg" "$HOME/.ssh/2fa_secret.gpg"
+
+expect {
+    -nocase -re "(verification code|otp|one-time password|token):" {
+        if { "$USE_AUTO_2FA" == "true" } {
+            send "$OTP_CODE\r"
+            exp_continue
+        } else {
+            interact
+        }
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    -nocase "password:" {
+        interact
+    }
+    eof
+}
+catch wait result
+exit [lindex \$result 3]
+EOF
+        SCP_STATUS=$?
+
+        if [ "$SCP_STATUS" -eq 0 ]; then
             GPG_ENC_FILE="$HOME/.ssh/2fa_secret.gpg"
             USE_AUTO_2FA=true
             echo "Copied remote 2FA secret to $GPG_ENC_FILE"
@@ -223,11 +279,66 @@ else
     # future connections (e.g. from other machines) can reuse it.
     echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
 
-    if ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "$HOME/2fa_secret.gpg" ]' 2>/dev/null; then
+    expect <<EOF
+set timeout 30
+spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" '[ -f "\$HOME/2fa_secret.gpg" ]'
+
+expect {
+    -nocase -re "(verification code|otp|one-time password|token):" {
+        if { "$USE_AUTO_2FA" == "true" } {
+            send "$OTP_CODE\r"
+            exp_continue
+        } else {
+            interact
+        }
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    -nocase "password:" {
+        interact
+    }
+    eof
+}
+catch wait result
+exit [lindex \$result 3]
+EOF
+    REMOTE_FILE_EXISTS=$?
+
+    if [ "$REMOTE_FILE_EXISTS" -eq 0 ]; then
         echo "Remote host already has 2fa_secret.gpg. Leaving it unchanged."
     else
         echo "No 2fa_secret.gpg found on remote host. Copying local copy there for future use..."
-        if scp -i "$KEY_PATH" "$GPG_ENC_FILE" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg"; then
+
+        expect <<EOF
+set timeout 30
+spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" "${FULL_REMOTE_TARGET}:\$HOME/2fa_secret.gpg"
+
+expect {
+    -nocase -re "(verification code|otp|one-time password|token):" {
+        if { "$USE_AUTO_2FA" == "true" } {
+            send "$OTP_CODE\r"
+            exp_continue
+        } else {
+            interact
+        }
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+    -nocase "password:" {
+        interact
+    }
+    eof
+}
+catch wait result
+exit [lindex \$result 3]
+EOF
+        SCP_STATUS=$?
+
+        if [ "$SCP_STATUS" -eq 0 ]; then
             echo "Copied $GPG_ENC_FILE to ${FULL_REMOTE_TARGET}:~/2fa_secret.gpg"
         else
             echo "Warning: Failed to copy 2FA secret to remote host. You can retry this manually later."
@@ -394,7 +505,7 @@ else
 fi
 
 # -------------------------------------------------------------------------
-# Step 7: Source the updated configuration natively 
+# Step 7: Source the updated configuration natively (Method 1)
 # -------------------------------------------------------------------------
 echo ""
 echo "=== Step 7: Automatically Sourcing Changes ==="
