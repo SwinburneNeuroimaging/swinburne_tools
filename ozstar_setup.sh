@@ -471,14 +471,20 @@ for DIR in "${SYNC_DIRS[@]}"; do
         fi
     fi
 
-    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},ssh_key_path=${KEY_PATH},key_use_agent=true:${DIR} ${DIR} --vfs-cache-mode full --daemon"
+    # NOTE: ssh_key_path is deliberately omitted here. rclone's SFTP backend
+    # has a known bug (rclone/rclone#6791) where supplying key_file together
+    # with key_use_agent=true causes it to try to filter the agent down to
+    # the one key matching <key_file>.pub -- and that lookup/filter logic
+    # fails for passphrase-protected keys, resulting in publickey auth never
+    # being registered at all ("attempted methods [none], no supported
+    # methods remain"), even though the agent holds a perfectly usable key.
+    # Since the agent only holds this one identity, there's no need to
+    # filter -- key_use_agent=true alone is sufficient and avoids the bug.
+    RCLONE_CMD="rclone mount :sftp,host=${REMOTE_HOST},user=${OZSTAR_USER},key_use_agent=true:${DIR} ${DIR} --vfs-cache-mode full --daemon"
 
     # Re-attach this (sub)shell to the persistent keychain-managed ssh-agent
     # so SSH_AUTH_SOCK is set before rclone is spawned. Without this,
-    # rclone's SFTP backend tries to read/decrypt $KEY_PATH itself (it has
-    # no passphrase to do so) instead of asking the already-unlocked agent,
-    # which results in "attempted methods [none], no supported methods
-    # remain" since publickey never gets registered as usable.
+    # rclone's SFTP backend would have no agent to talk to at all.
     KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
     if [ -f "$KEYCHAIN_SH" ]; then
         # shellcheck disable=SC1090
