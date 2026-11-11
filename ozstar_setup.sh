@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# See https://stackoverflow.com/a/78631033 for how to get a direct link to this script (change 'blob' in url to 'raw')
-
 # =========================================================================
 # Configuration
 # =========================================================================
@@ -69,10 +67,10 @@ echo ""
 
 USE_AUTO_2FA=false
 if [ -n "$TFA_SECRET" ]; then
-    #echo "Encrypting 2FA secret..."
-    #echo "$TFA_SECRET" | gpg --symmetric --output "$GPG_ENC_FILE" --yes
+    echo "Encrypting 2FA secret..."
+    echo "$TFA_SECRET" | gpg --symmetric --output "$GPG_ENC_FILE" --yes
     unset TFA_SECRET
-    #echo "Saved encrypted secret to $GPG_ENC_FILE"
+    echo "Saved encrypted secret to $GPG_ENC_FILE"
     USE_AUTO_2FA=true
 else
     echo "No 2FA setup string provided. You will be prompted for your 2FA code during connections."
