@@ -16,7 +16,7 @@ REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain")
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
 # -------------------------------------------------------------------------
-echo "=== Step 0: Checking System Dependencies ==="
+#echo "=== Step 0: Checking System Dependencies ==="
 
 MISSING_PKGS=()
 for pkg in "${REQUIRED_PKGS[@]}"; do
@@ -26,7 +26,7 @@ for pkg in "${REQUIRED_PKGS[@]}"; do
 done
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-    echo "Missing dependencies found: ${MISSING_PKGS[*]}"
+    #echo "Missing dependencies found: ${MISSING_PKGS[*]}"
     echo "Installing missing packages via apt... (Root/sudo privileges required)"
 
     sudo apt-get update -y && \
@@ -34,20 +34,20 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
 
     for pkg in "${MISSING_PKGS[@]}"; do
         if ! command -v "$pkg" &> /dev/null && ! dpkg -s "$pkg" &> /dev/null; then
-            echo "Error: Failed to install '$pkg'. Please install it manually." >&2
+            #echo "Error: Failed to install '$pkg'. Please install it manually." >&2
             return 1 2>/dev/null || exit 1
         fi
     done
-    echo "All dependencies successfully installed."
+    #echo "All dependencies successfully installed."
 else
-    echo "All required dependencies are already installed."
+    #echo "All required dependencies are already installed."
 fi
-echo ""
+#echo ""
 
 # -------------------------------------------------------------------------
 # Step 1: Obtain Remote Username and Optional 2FA String
 # -------------------------------------------------------------------------
-echo "=== Step 1: User & 2FA Configuration ==="
+#echo "=== Step 1: User & 2FA Configuration ==="
 
 # Obtain username at runtime
 while true; do
@@ -67,10 +67,10 @@ echo ""
 
 USE_AUTO_2FA=false
 if [ -n "$TFA_SECRET" ]; then
-    echo "Encrypting 2FA secret..."
-    echo "$TFA_SECRET" | gpg --symmetric --output "$GPG_ENC_FILE" --yes
+    #echo "Encrypting 2FA secret..."
+    #echo "$TFA_SECRET" | gpg --symmetric --output "$GPG_ENC_FILE" --yes
     unset TFA_SECRET
-    echo "Saved encrypted secret to $GPG_ENC_FILE"
+    #echo "Saved encrypted secret to $GPG_ENC_FILE"
     USE_AUTO_2FA=true
 else
     echo "No 2FA setup string provided. You will be prompted for your 2FA code during connections."
@@ -81,7 +81,7 @@ echo ""
 # -------------------------------------------------------------------------
 # Step 2: Generate the SSH Key (Enforcing Non-Empty Passphrase)
 # -------------------------------------------------------------------------
-echo "=== Step 2: SSH Key Generation ==="
+#echo "=== Step 2: SSH Key Generation ==="
 if [ -f "$KEY_PATH" ]; then
     read -p "An SSH key already exists at $KEY_PATH. Overwrite? (y/n): " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -117,9 +117,9 @@ echo ""
 # -------------------------------------------------------------------------
 # Step 2b: Load the New Key into a Persistent Agent via "keychain"
 # -------------------------------------------------------------------------
-echo "=== Step 2b: Loading Key via keychain ==="
+#echo "=== Step 2b: Loading Key via keychain ==="
 
-echo "Starting/attaching to keychain-managed ssh-agent and adding $KEY_PATH..."
+#echo "Starting/attaching to keychain-managed ssh-agent and adding $KEY_PATH..."
 expect <<EOF
 set timeout 10
 spawn keychain --quiet --agents ssh "$KEY_PATH"
@@ -173,23 +173,23 @@ EOF
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
         echo "Error: Unable to establish a working keychain/ssh-agent socket. ssh/scp/sshfs calls below may prompt for the key passphrase directly." >&2
     else
-        echo "Fresh agent started successfully."
+        #echo "Fresh agent started successfully."
     fi
 fi
 
 unset PASS1 PASS2
-echo "Key loaded via keychain. The agent persists across terminals/sessions (until reboot or 'keychain --stop'),"
-echo "so subsequent ssh/scp calls -- including in future shells -- won't re-prompt for the key passphrase."
-echo ""
+#echo "Key loaded via keychain. The agent persists across terminals/sessions (until reboot or 'keychain --stop'),"
+#echo "so subsequent ssh/scp calls -- including in future shells -- won't re-prompt for the key passphrase."
+#echo ""
 
 # -------------------------------------------------------------------------
 # Step 3: Copy ID via Expect (Conditional 2FA Handling & Fallback)
 # -------------------------------------------------------------------------
-echo "=== Step 3: Copying SSH Key to $FULL_REMOTE_TARGET ==="
+#echo "=== Step 3: Copying SSH Key to $FULL_REMOTE_TARGET ==="
 
 OTP_CODE=""
 if [ "$USE_AUTO_2FA" = true ]; then
-    echo "Decrypting 2FA setup string to generate live OTP..."
+    #echo "Decrypting 2FA setup string to generate live OTP..."
     CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
 
     if [ -z "$CODE" ]; then
@@ -197,12 +197,12 @@ if [ "$USE_AUTO_2FA" = true ]; then
         USE_AUTO_2FA=false
     else
         OTP_CODE="$CODE"
-        echo "Generated automated OTP Token successfully."
+        #echo "Generated automated OTP Token successfully."
     fi
 fi
 
-echo "Initiating ssh-copy-id..."
-echo ""
+#echo "Initiating ssh-copy-id..."
+#echo ""
 
 # NOTE: the expect script is written to a temp file and invoked as
 # `expect /path/to/file` (rather than piped in via a `<<EOF` heredoc on
@@ -238,7 +238,7 @@ expect {
 EOF
 expect "$STEP3_EXP"
 rm -f "$STEP3_EXP"
-echo ""
+#echo ""
 
 # -------------------------------------------------------------------------
 # Step 3b: Reconcile the 2FA Secret Between Local and Remote Host
@@ -249,7 +249,7 @@ echo ""
 #          run as `expect file` rather than piped via a stdin heredoc, so
 #          that `interact` has access to the real terminal stdin.)
 # -------------------------------------------------------------------------
-echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
+#echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
 
 if [ "$USE_AUTO_2FA" = false ]; then
     # No local setup string was supplied -- check whether the remote host
@@ -333,7 +333,7 @@ else
     # A local setup string WAS supplied and encrypted into $GPG_ENC_FILE.
     # If the remote host doesn't already have a copy, push it up now so
     # future connections (e.g. from other machines) can reuse it.
-    echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
+    #echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
 
     # Regenerate a fresh OTP right before use -- TOTP codes rotate (typically
     # every ~30s), and the $OTP_CODE generated back in Step 3 may have
@@ -421,7 +421,7 @@ echo ""
 # -------------------------------------------------------------------------
 # Step 4: Write out the persistent, reusable Remounting Script
 # -------------------------------------------------------------------------
-echo "=== Step 4: Creating Reusable Mount Script ==="
+#echo "=== Step 4: Creating Reusable Mount Script ==="
 
 # Initialize the remount file safely
 printf '#!/bin/bash\n# Reusable Mounting Script\n\n' > "$REMOUNT_SCRIPT"
@@ -442,17 +442,17 @@ SYNC_DIRS=(
 )
 
 for DIR in "${SYNC_DIRS[@]}"; do
-    echo "-------------------------------------------------------"
-    echo "Mounting Path: $DIR"
-    echo "-------------------------------------------------------"
+    #echo "-------------------------------------------------------"
+    #echo "Mounting Path: $DIR"
+    #echo "-------------------------------------------------------"
 
     if [ -d "$DIR" ]; then
-        echo "Directory $DIR already exists. Skipping creation."
+        #echo "Directory $DIR already exists. Skipping creation."
         if mountpoint -q "$DIR" &>/dev/null; then
             fusermount3 -u "$DIR" &>/dev/null
         fi
     else
-        echo "Directory $DIR does not exist. Creating it (requires sudo for top-level paths)..."
+        #echo "Directory $DIR does not exist. Creating it (requires sudo for top-level paths)..."
         sudo mkdir -p "$DIR"
         sudo chown "$(whoami)":"$(whoami)" "$DIR"
     fi
@@ -466,7 +466,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
                 CURRENT_AUTO_2FA=false
             fi
         else
-            echo "Warning: Persistent GPG secret file missing. Falling back to manual entry."
+            #echo "Warning: Persistent GPG secret file missing. Falling back to manual entry."
             CURRENT_AUTO_2FA=false
         fi
     fi
@@ -488,7 +488,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
     # case, clear the stale state and start a genuinely fresh agent,
     # prompting interactively for the key passphrase if needed.
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
+        #echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
         keychain --stop all &>/dev/null
         rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
 
@@ -554,24 +554,24 @@ for DIR in "${SYNC_DIRS[@]}"; do
 OUTER_EOF
 done
 
-echo "=== Mount synchronization script completed ==="
+#echo "=== Mount synchronization script completed ==="
 REMOUNT_BLOCK
 
 chmod +x "$REMOUNT_SCRIPT"
-echo "Persistent script written successfully to: $REMOUNT_SCRIPT"
-echo ""
+#echo "Persistent script written successfully to: $REMOUNT_SCRIPT"
+#echo ""
 
 # -------------------------------------------------------------------------
 # Step 4b: Add reconnect_ozstar's directory to PATH via ~/.bashrc
 # -------------------------------------------------------------------------
-echo "=== Step 4b: Adding $(dirname "$REMOUNT_SCRIPT") to PATH in $MY_BASHRC ==="
+#echo "=== Step 4b: Adding $(dirname "$REMOUNT_SCRIPT") to PATH in $MY_BASHRC ==="
 
 REMOUNT_SCRIPT_DIR=$(dirname "$REMOUNT_SCRIPT")
 PATH_MARKER="# >>> reconnect_ozstar PATH >>>"
 if grep -qF "$PATH_MARKER" "$MY_BASHRC"; then
-    echo "reconnect_ozstar PATH entry already present in $MY_BASHRC. Skipping injection."
+    #echo "reconnect_ozstar PATH entry already present in $MY_BASHRC. Skipping injection."
 else
-    echo "Appending PATH export for $REMOUNT_SCRIPT_DIR to $MY_BASHRC..."
+    #echo "Appending PATH export for $REMOUNT_SCRIPT_DIR to $MY_BASHRC..."
     cat << PATH_BLOCK >> "$MY_BASHRC"
 
 $PATH_MARKER
@@ -582,27 +582,27 @@ if [[ ":\$PATH:" != *":${REMOUNT_SCRIPT_DIR}:"* ]]; then
 fi
 # <<< reconnect_ozstar PATH <<<
 PATH_BLOCK
-    echo "PATH entry added successfully!"
+    #echo "PATH entry added successfully!"
 fi
-echo ""
+#echo ""
 
 # -------------------------------------------------------------------------
 # Step 5: Execute the newly written file to trigger initial mounting
 # -------------------------------------------------------------------------
-echo "=== Step 5: Running Mount Operations ==="
+#echo "=== Step 5: Running Mount Operations ==="
 bash "$REMOUNT_SCRIPT"
 
 # -------------------------------------------------------------------------
 # Step 6: Inject automated sshoz shortcut into ~/.bashrc (CONDITIONAL)
 # -------------------------------------------------------------------------
 if [ "$USE_AUTO_2FA" = true ]; then
-    echo ""
-    echo "=== Step 6: Adding sshoz shortcut to $MY_BASHRC ==="
+    #echo ""
+    #echo "=== Step 6: Adding sshoz shortcut to $MY_BASHRC ==="
 
     if grep -q "sshoz()" "$MY_BASHRC"; then
-        echo "sshoz function already exists in $MY_BASHRC. Skipping injection."
+        #echo "sshoz function already exists in $MY_BASHRC. Skipping injection."
     else
-        echo "Appending sshoz function to $MY_BASHRC..."
+        #echo "Appending sshoz function to $MY_BASHRC..."
 
         TEMP_FUNC_FILE=$(mktemp)
 
@@ -624,7 +624,7 @@ sshoz() {
     # that's happened, clear the stale state and start a fresh agent,
     # prompting interactively for the passphrase if needed.
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
+        #echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
         keychain --stop all &>/dev/null
         rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
 
@@ -646,8 +646,8 @@ sshoz() {
 
     local SECRET_FILE="$HOME/.ssh/2fa_secret.gpg"
     if [ ! -f "$SECRET_FILE" ]; then
-        echo "Error: Automated 2FA secret file missing ($SECRET_FILE)."
-        echo "Launching standard connection instead..."
+        #echo "Error: Automated 2FA secret file missing ($SECRET_FILE)."
+        #echo "Launching standard connection instead..."
         ssh -Y TARGET_PLACEHOLDER
         return
     fi
@@ -655,28 +655,28 @@ sshoz() {
     local CODE
     CODE=$(gpg -q -d "$SECRET_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
     if [ -z "$CODE" ]; then
-        echo "Error: Failed to generate 2FA token (GPG decryption failed)."
-        echo "Launching standard connection..."
+        #echo "Error: Failed to generate 2FA token (GPG decryption failed)."
+        #echo "Launching standard connection..."
         ssh -Y TARGET_PLACEHOLDER
         return
     fi
 
-    echo "Generated 2FA Code: $CODE"
+    #echo "Generated 2FA Code: $CODE"
 
     if command -v xclip &> /dev/null; then
         echo -n "$CODE" | xclip -sel clip
-        echo "(Copied to Clipboard via xclip)"
+        #echo "(Copied to Clipboard via xclip)"
     elif command -v wl-copy &> /dev/null; then
         echo -n "$CODE" | wl-copy
-        echo "(Copied to Clipboard via wl-copy)"
+        #echo "(Copied to Clipboard via wl-copy)"
     elif command -v xsel &> /dev/null; then
         echo -n "$CODE" | xsel -b
-        echo "(Copied to Clipboard via xsel)"
+        #echo "(Copied to Clipboard via xsel)"
     else
         echo "(Clipboard utility not found. Please type or copy the code manually)"
     fi
 
-    echo "Connecting to TARGET_PLACEHOLDER..."
+    #echo "Connecting to TARGET_PLACEHOLDER..."
     ssh -Y TARGET_PLACEHOLDER
 }
 BASHRC_FUNC
@@ -685,26 +685,26 @@ BASHRC_FUNC
         cat "$TEMP_FUNC_FILE" >> "$MY_BASHRC"
         rm -f "$TEMP_FUNC_FILE"
 
-        echo "Shortcut added successfully!"
+        #echo "Shortcut added successfully!"
     fi
 else
-    echo ""
-    echo "=== Step 6: Skipping sshoz Shortcut ==="
-    echo "Automated 2FA string was not supplied; skipping .bashrc modification."
+    #echo ""
+    #echo "=== Step 6: Skipping sshoz Shortcut ==="
+    #echo "Automated 2FA string was not supplied; skipping .bashrc modification."
 fi
 
 # -------------------------------------------------------------------------
 # Step 7: Source the updated configuration natively (Method 1)
 # -------------------------------------------------------------------------
-echo ""
-echo "=== Step 7: Automatically Sourcing Changes ==="
+#echo ""
+#echo "=== Step 7: Automatically Sourcing Changes ==="
 if [ -f "$MY_BASHRC" ]; then
-    echo "Sourcing $MY_BASHRC to update active shell..."
+    #echo "Sourcing $MY_BASHRC to update active shell..."
     source "$MY_BASHRC"
 fi
 
-echo ""
-echo "=== Setup Complete ==="
+#echo ""
+#echo "=== Setup Complete ==="
 if [ "$USE_AUTO_2FA" = true ]; then
-    echo "You can now run 'sshoz' directly in this terminal window!"
+    #echo "You can now run 'sshoz' directly in this terminal window!"
 fi
