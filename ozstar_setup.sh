@@ -520,7 +520,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
 
     expect <<OUTER_EOF
     set timeout 20
-    spawn bash -c "$SSHFS_CMD"
+    spawn bash -c {$SSHFS_CMD}
 
     expect {
         -nocase -re "(verification code|otp|one-time password|token):" {
