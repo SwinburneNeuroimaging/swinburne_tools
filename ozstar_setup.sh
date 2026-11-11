@@ -705,6 +705,6 @@ fi
 
 #echo ""
 #echo "=== Setup Complete ==="
-if [ "$USE_AUTO_2FA" = true ]; then
+#if [ "$USE_AUTO_2FA" = true ]; then
     #echo "You can now run 'sshoz' directly in this terminal window!"
-fi
+#fi
