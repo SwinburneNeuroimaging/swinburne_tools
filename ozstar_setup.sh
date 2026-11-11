@@ -572,6 +572,7 @@ REMOUNT_SCRIPT_DIR=$(dirname "$REMOUNT_SCRIPT")
 PATH_MARKER="# >>> reconnect_ozstar PATH >>>"
 if grep -qF "$PATH_MARKER" "$MY_BASHRC"; then
     #echo "reconnect_ozstar PATH entry already present in $MY_BASHRC. Skipping injection."
+    :
 else
     #echo "Appending PATH export for $REMOUNT_SCRIPT_DIR to $MY_BASHRC..."
     cat << PATH_BLOCK >> "$MY_BASHRC"
