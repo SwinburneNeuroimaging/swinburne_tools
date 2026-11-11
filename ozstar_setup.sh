@@ -604,6 +604,7 @@ if [ "$USE_AUTO_2FA" = true ]; then
 
     if grep -q "sshoz()" "$MY_BASHRC"; then
         #echo "sshoz function already exists in $MY_BASHRC. Skipping injection."
+        :
     else
         #echo "Appending sshoz function to $MY_BASHRC..."
 
