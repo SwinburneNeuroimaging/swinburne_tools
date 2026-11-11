@@ -516,7 +516,22 @@ for DIR in "${SYNC_DIRS[@]}"; do
     # sshfs via the system OpenSSH client -- it picks up SSH_AUTH_SOCK (and
     # thus the already-unlocked keychain-managed key) the same way plain
     # ssh/scp do, with no equivalent of rclone's key_file+key_use_agent bug.
-    SSHFS_CMD="env SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK\" sshfs -i \"$KEY_PATH\" ${OZSTAR_USER}@${REMOTE_HOST}:${DIR} ${DIR} -o workaround=rename -o reconnect -o ServerAliveInterval=15"
+    #
+    # NOTE: sshfs does NOT support a standalone `-i <path>` flag the way
+    # ssh/scp do. Passing -i directly confuses its argument parser and
+    # causes it to misread the mountpoint as an unexpected extra argument
+    # ("invalid argument `/fred'"). The identity file must instead be
+    # passed through sshfs's generic -o option mechanism as
+    # -o IdentityFile=<path>.
+    #
+    # NOTE: SSHFS_CMD contains embedded double quotes (around the socket
+    # path and key path). Passing it to Tcl as `spawn bash -c "$SSHFS_CMD"`
+    # would close the Tcl string early once bash substitutes the quotes in
+    # ("extra characters after close-quote"). Using Tcl brace-quoting
+    # `{$SSHFS_CMD}` instead avoids this: bash still expands the variable
+    # before Tcl parses the line, but braces make Tcl treat the whole
+    # expanded text (quotes included) as one literal argument.
+    SSHFS_CMD="env SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK\" sshfs -o IdentityFile=\"$KEY_PATH\" ${OZSTAR_USER}@${REMOTE_HOST}:${DIR} ${DIR} -o workaround=rename -o reconnect -o ServerAliveInterval=15"
 
     expect <<OUTER_EOF
     set timeout 20
