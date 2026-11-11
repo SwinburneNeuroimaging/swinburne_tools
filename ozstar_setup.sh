@@ -39,7 +39,7 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
         fi
     done
     #echo "All dependencies successfully installed."
-else
+#else
     #echo "All required dependencies are already installed."
 fi
 #echo ""
@@ -172,7 +172,7 @@ EOF
 
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
         echo "Error: Unable to establish a working keychain/ssh-agent socket. ssh/scp/sshfs calls below may prompt for the key passphrase directly." >&2
-    else
+    #else
         #echo "Fresh agent started successfully."
     fi
 fi
@@ -687,7 +687,7 @@ BASHRC_FUNC
 
         #echo "Shortcut added successfully!"
     fi
-else
+#else
     #echo ""
     #echo "=== Step 6: Skipping sshoz Shortcut ==="
     #echo "Automated 2FA string was not supplied; skipping .bashrc modification."
