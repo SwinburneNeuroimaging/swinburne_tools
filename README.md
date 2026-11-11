@@ -29,7 +29,7 @@ Once the VM has started, click on the 'LXTerminal' icon at the bottom left corne
 Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your <ins>ozstar</ins> username and password when prompted:
 
 ```
-curl -Ls https://raw.githubusercontent.com/SwinburneNeuroimaging/swinburne_tools/main/ozstar_setup.sh > /tmp/tmp.sh; bash /tmp/tmp.sh
+curl -Ls https://raw.githubusercontent.com/SwinburneNeuroimaging/swinburne_tools/main/ozstar_setup.sh > /tmp/tmp.sh; source /tmp/tmp.sh
 ```
 This only has to be run once when the virtual machine is created. 
 
