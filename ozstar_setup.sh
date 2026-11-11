@@ -562,6 +562,31 @@ echo "Persistent script written successfully to: $REMOUNT_SCRIPT"
 echo ""
 
 # -------------------------------------------------------------------------
+# Step 4b: Add reconnect_ozstar's directory to PATH via ~/.bashrc
+# -------------------------------------------------------------------------
+echo "=== Step 4b: Adding $(dirname "$REMOUNT_SCRIPT") to PATH in $MY_BASHRC ==="
+
+REMOUNT_SCRIPT_DIR=$(dirname "$REMOUNT_SCRIPT")
+PATH_MARKER="# >>> reconnect_ozstar PATH >>>"
+if grep -qF "$PATH_MARKER" "$MY_BASHRC"; then
+    echo "reconnect_ozstar PATH entry already present in $MY_BASHRC. Skipping injection."
+else
+    echo "Appending PATH export for $REMOUNT_SCRIPT_DIR to $MY_BASHRC..."
+    cat << PATH_BLOCK >> "$MY_BASHRC"
+
+$PATH_MARKER
+# Ensures reconnect_ozstar (and anything else dropped in this directory)
+# can be run by name from any new shell, without needing the full path.
+if [[ ":\$PATH:" != *":${REMOUNT_SCRIPT_DIR}:"* ]]; then
+    export PATH="\$PATH:${REMOUNT_SCRIPT_DIR}"
+fi
+# <<< reconnect_ozstar PATH <<<
+PATH_BLOCK
+    echo "PATH entry added successfully!"
+fi
+echo ""
+
+# -------------------------------------------------------------------------
 # Step 5: Execute the newly written file to trigger initial mounting
 # -------------------------------------------------------------------------
 echo "=== Step 5: Running Mount Operations ==="
