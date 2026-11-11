@@ -13,7 +13,7 @@ REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
 MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 
 # Required local packages
-REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain")
+REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain" "xclip")
 
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
