@@ -62,7 +62,7 @@ done
 FULL_REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
 
 # Optional 2FA Setup String
-read -rs "Enter your ozstar 2FA Setup String (Leave blank to download from ozstar or input 2FA codes manually later): " TFA_SECRET
+read -r -p "Enter your ozstar 2FA Setup String (Leave blank to download from ozstar or input 2FA codes manually later): " TFA_SECRET
 echo ""
 
 USE_AUTO_2FA=false
