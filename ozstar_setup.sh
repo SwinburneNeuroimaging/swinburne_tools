@@ -218,7 +218,7 @@ set timeout 30
 spawn ssh-copy-id -i "${KEY_PATH}.pub" "$FULL_REMOTE_TARGET"
 
 expect {
-    -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+    -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
         if { "$USE_AUTO_2FA" == "true" } {
             send "$OTP_CODE\r"
             exp_continue
@@ -262,7 +262,7 @@ set timeout 30
 spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
 expect {
-    -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+    -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
         if { "$USE_AUTO_2FA" == "true" } {
             send "$OTP_CODE\r"
             exp_continue
@@ -295,7 +295,7 @@ set timeout 30
 spawn scp -i "$KEY_PATH" {${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg} "$HOME/.ssh/2fa_secret.gpg"
 
 expect {
-    -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+    -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
         if { "$USE_AUTO_2FA" == "true" } {
             send "$OTP_CODE\r"
             exp_continue
@@ -346,7 +346,7 @@ set timeout 30
 spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
 
 expect {
-    -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+    -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
         if { "$USE_AUTO_2FA" == "true" } {
             send "$OTP_CODE\r"
             exp_continue
@@ -385,7 +385,7 @@ set timeout 30
 spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg}
 
 expect {
-    -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+    -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
         if { "$USE_AUTO_2FA" == "true" } {
             send "$OTP_CODE\r"
             exp_continue
@@ -538,7 +538,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
     spawn bash -c {$SSHFS_CMD}
 
     expect {
-        -nocase -re "(verification code|otp|one-time password|token|2fa):" {
+        -nocase -re "(verification code|otp|one-time password|token|2fa code|2fa):" {
             if { "\$CURRENT_AUTO_2FA" == "true" } {
                 send "$OTP_CODE\r"
                 exp_continue
