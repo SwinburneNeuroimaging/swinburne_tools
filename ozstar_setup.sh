@@ -183,6 +183,18 @@ echo ""
 # so the manual-password fallback would silently fail to let you type
 # anything. Writing to a file instead leaves the real terminal's stdin
 # untouched and available to `interact`.
+#
+# NOTE: this host requires BOTH an account password AND a 2FA code in
+# sequence (password prompt arrives first, 2FA prompt second) whenever
+# the key being used isn't authorized yet. The "password:" branch below
+# used to call a bare `interact`, which hands off ALL subsequent
+# matching to the user -- so once it took over, the 2FA prompt that
+# followed was never auto-answered, forcing you to type both the
+# password and the OTP manually. Fixed by giving `interact` its own
+# "-o" (watch process OUTPUT) pattern for the 2FA prompt: you still type
+# the account password manually, but interact keeps watching in the
+# background and auto-sends $OTP_CODE the moment the 2FA prompt appears,
+# then continues interacting normally until the process exits.
 STEP3_EXP=$(mktemp /tmp/setup_ssh_step3.XXXXXX.exp)
 cat > "$STEP3_EXP" <<EOF
 set timeout 30
@@ -201,7 +213,13 @@ expect {
         exp_continue
     }
     -nocase "password:" {
-        interact
+        interact {
+            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                if { "$USE_AUTO_2FA" == "true" } {
+                    send -- "$OTP_CODE\r"
+                }
+            }
+        }
     }
     eof
 }
@@ -216,7 +234,10 @@ echo ""
 #          USE_AUTO_2FA is true, otherwise fall through to manual "interact".
 #          As in Step 3, each expect script is written to a temp file and
 #          run as `expect file` rather than piped via a stdin heredoc, so
-#          that `interact` has access to the real terminal stdin.)
+#          that `interact` has access to the real terminal stdin -- and
+#          each "password:" branch's `interact` also watches for the 2FA
+#          prompt via -o so the OTP still gets auto-sent after a manual
+#          password entry.)
 # -------------------------------------------------------------------------
 echo "=== Step 3b: Reconciling 2FA Secret With Remote Host ==="
 if [ "$USE_AUTO_2FA" = false ]; then
@@ -241,7 +262,13 @@ expect {
         exp_continue
     }
     -nocase "password:" {
-        interact
+        interact {
+            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                if { "$USE_AUTO_2FA" == "true" } {
+                    send -- "$OTP_CODE\r"
+                }
+            }
+        }
     }
     eof
 }
@@ -271,7 +298,13 @@ expect {
         exp_continue
     }
     -nocase "password:" {
-        interact
+        interact {
+            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                if { "$USE_AUTO_2FA" == "true" } {
+                    send -- "$OTP_CODE\r"
+                }
+            }
+        }
     }
     eof
 }
@@ -318,7 +351,13 @@ expect {
         exp_continue
     }
     -nocase "password:" {
-        interact
+        interact {
+            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                if { "$USE_AUTO_2FA" == "true" } {
+                    send -- "$OTP_CODE\r"
+                }
+            }
+        }
     }
     eof
 }
@@ -353,7 +392,13 @@ expect {
         exp_continue
     }
     -nocase "password:" {
-        interact
+        interact {
+            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                if { "$USE_AUTO_2FA" == "true" } {
+                    send -- "$OTP_CODE\r"
+                }
+            }
+        }
     }
     eof
 }
@@ -486,7 +531,13 @@ for DIR in "${SYNC_DIRS[@]}"; do
             }
         }
         -nocase "password:" {
-            interact
+            interact {
+                -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                    if { "\$CURRENT_AUTO_2FA" == "true" } {
+                        send -- "$OTP_CODE\r"
+                    }
+                }
+            }
         }
         eof
     }
