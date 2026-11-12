@@ -10,7 +10,7 @@ REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
 MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 # Required local packages
 REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain" "xclip")
-echo version1
+echo version2
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
 # -------------------------------------------------------------------------
@@ -215,7 +215,7 @@ expect {
     }
     -nocase "password:" {
         interact {
-            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                 if { "$USE_AUTO_2FA" == "true" } {
                     send -- "$OTP_CODE\r"
                 }
@@ -264,7 +264,7 @@ expect {
     }
     -nocase "password:" {
         interact {
-            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                 if { "$USE_AUTO_2FA" == "true" } {
                     send -- "$OTP_CODE\r"
                 }
@@ -300,7 +300,7 @@ expect {
     }
     -nocase "password:" {
         interact {
-            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                 if { "$USE_AUTO_2FA" == "true" } {
                     send -- "$OTP_CODE\r"
                 }
@@ -353,7 +353,7 @@ expect {
     }
     -nocase "password:" {
         interact {
-            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                 if { "$USE_AUTO_2FA" == "true" } {
                     send -- "$OTP_CODE\r"
                 }
@@ -394,7 +394,7 @@ expect {
     }
     -nocase "password:" {
         interact {
-            -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                 if { "$USE_AUTO_2FA" == "true" } {
                     send -- "$OTP_CODE\r"
                 }
@@ -533,7 +533,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
         }
         -nocase "password:" {
             interact {
-                -o -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
+                -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
                     if { "\$CURRENT_AUTO_2FA" == "true" } {
                         send -- "$OTP_CODE\r"
                     }
