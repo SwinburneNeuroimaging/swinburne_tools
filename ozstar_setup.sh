@@ -10,7 +10,7 @@ REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
 MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 # Required local packages
 REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain" "xclip")
-echo version2
+echo version3
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
 # -------------------------------------------------------------------------
@@ -524,7 +524,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
     spawn bash -c {$SSHFS_CMD}
     expect {
         -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-            if { "\$CURRENT_AUTO_2FA" == "true" } {
+            if { "$CURRENT_AUTO_2FA" == "true" } {
                 send "$OTP_CODE\r"
                 exp_continue
             } else {
@@ -534,7 +534,7 @@ for DIR in "${SYNC_DIRS[@]}"; do
         -nocase "password:" {
             interact {
                 -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-                    if { "\$CURRENT_AUTO_2FA" == "true" } {
+                    if { "$CURRENT_AUTO_2FA" == "true" } {
                         send -- "$OTP_CODE\r"
                     }
                 }
