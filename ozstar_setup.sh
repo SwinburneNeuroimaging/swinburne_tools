@@ -10,7 +10,6 @@ REMOUNT_SCRIPT="/home/vdiuser/.local/bin/reconnect_ozstar"
 MY_BASHRC="$HOME/.bashrc"   # Explicitly defining the path locally
 # Required local packages
 REQUIRED_PKGS=("oathtool" "gpg" "expect" "sshfs" "fuse3" "keychain" "xclip")
-echo version3
 # -------------------------------------------------------------------------
 # Step 0: Ensure Required Packages are Installed (APT)
 # -------------------------------------------------------------------------
@@ -428,123 +427,124 @@ printf 'REMOTE_HOST="%s"\n' "$REMOTE_HOST" >> "$REMOUNT_SCRIPT"
 printf 'OZSTAR_USER="%s"\n' "$OZSTAR_USER" >> "$REMOUNT_SCRIPT"
 printf 'KEY_PATH="%s"\n' "$KEY_PATH" >> "$REMOUNT_SCRIPT"
 printf 'GPG_ENC_FILE="%s"\n' "$GPG_ENC_FILE" >> "$REMOUNT_SCRIPT"
-printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
+printf 'USE_AUTO_2FA="%s"\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
+printf 'LAST_USED_OTP="%s"\n\n' "$OTP_CODE" >> "$REMOUNT_SCRIPT"
 # Append directory arrays and operational logic safely
 cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
-SYNC_DIRS=(
-    "/fred"
-    "/dagg"
-    "/home/${OZSTAR_USER}"
-)
-for DIR in "${SYNC_DIRS[@]}"; do
-    echo "-------------------------------------------------------"
-    echo "Mounting Path: $DIR"
-    echo "-------------------------------------------------------"
-    if [ -d "$DIR" ]; then
-        echo "Directory $DIR already exists. Skipping creation."
-        if mountpoint -q "$DIR" &>/dev/null; then
-            fusermount3 -u "$DIR" &>/dev/null
-        fi
-    else
-        echo "Directory $DIR does not exist. Creating it (requires sudo for top-level paths)..."
-        sudo mkdir -p "$DIR"
-        sudo chown "$(whoami)":"$(whoami)" "$DIR"
-    fi
-    CURRENT_AUTO_2FA="$USE_AUTO_2FA"
-    if [ "$CURRENT_AUTO_2FA" = true ]; then
-        if [ -f "$GPG_ENC_FILE" ]; then
-            OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
-            if [ -z "$OTP_CODE" ]; then
-                echo "Warning: Token generation failed. Falling back to manual entry for this path."
-                CURRENT_AUTO_2FA=false
-            fi
-        else
-            echo "Warning: Persistent GPG secret file missing. Falling back to manual entry."
-            CURRENT_AUTO_2FA=false
-        fi
-    fi
-    # Re-attach this (sub)shell to the persistent keychain-managed ssh-agent
-    # so SSH_AUTH_SOCK is set before sshfs is spawned, letting it use the
-    # already-unlocked key instead of needing the passphrase typed again.
-    KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
-    if [ -f "$KEYCHAIN_SH" ]; then
-        # shellcheck disable=SC1090
-        source "$KEYCHAIN_SH"
-    fi
-    # Validate the socket is actually live -- keychain only confirms the
-    # recorded agent PID is still running, not that its socket file still
-    # exists. If /tmp was cleared since the agent was started (session
-    # recycle, reboot) but the PID got reused by something else, keychain
-    # will hand back a path to a socket that no longer exists. In that
-    # case, clear the stale state and start a genuinely fresh agent,
-    # prompting interactively for the key passphrase if needed.
+SYNC_DIRS=("/fred" "/dagg" "/home/${OZSTAR_USER}")
+CONTROL_DIR="$HOME/.ssh/controlmasters"
+CONTROL_SOCKET="$CONTROL_DIR/ozstar-${OZSTAR_USER}"
+REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
+CHECK_INTERVAL=30
+
+load_agent() {
+    local keychain_sh="$HOME/.keychain/$(hostname)-sh"
+    [ -f "$keychain_sh" ] && source "$keychain_sh"
     if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
+        echo "Warning: keychain socket unavailable; restarting keychain."
         keychain --stop all &>/dev/null
-        rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
-        expect -c "
-            set timeout 15
-            spawn keychain --quiet --agents ssh \"$KEY_PATH\"
-            expect {
-                -nocase \"Enter passphrase\" {
-                    interact
-                }
-                eof
-            }
-        "
-        if [ -f "$KEYCHAIN_SH" ]; then
-            # shellcheck disable=SC1090
-            source "$KEYCHAIN_SH"
-        fi
-        if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-            echo "Error: Still no working agent socket for $DIR. sshfs mount below will likely fail to authenticate." >&2
-        fi
+        rm -f "$HOME/.keychain/$(hostname)"{,-sh,-csh} 2>/dev/null
+        keychain --quiet --agents ssh "$KEY_PATH"
+        [ -f "$keychain_sh" ] && source "$keychain_sh"
     fi
-    # sshfs via the system OpenSSH client -- it picks up SSH_AUTH_SOCK (and
-    # thus the already-unlocked keychain-managed key) the same way plain
-    # ssh/scp do, with no equivalent of rclone's key_file+key_use_agent bug.
-    #
-    # NOTE: sshfs does NOT support a standalone `-i <path>` flag the way
-    # ssh/scp do. Passing -i directly confuses its argument parser and
-    # causes it to misread the mountpoint as an unexpected extra argument
-    # ("invalid argument `/fred'"). The identity file must instead be
-    # passed through sshfs's generic -o option mechanism as
-    # -o IdentityFile=<path>.
-    #
-    # NOTE: SSHFS_CMD contains embedded double quotes (around the socket
-    # path and key path). Passing it to Tcl as `spawn bash -c "$SSHFS_CMD"`
-    # would close the Tcl string early once bash substitutes the quotes in
-    # ("extra characters after close-quote"). Using Tcl brace-quoting
-    # `{$SSHFS_CMD}` instead avoids this: bash still expands the variable
-    # before Tcl parses the line, but braces make Tcl treat the whole
-    # expanded text (quotes included) as one literal argument.
-    SSHFS_CMD="env SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK\" sshfs -o IdentityFile=\"$KEY_PATH\" ${OZSTAR_USER}@${REMOTE_HOST}:${DIR} ${DIR} -o workaround=rename -o reconnect -o ServerAliveInterval=15"
-    expect <<OUTER_EOF
-    set timeout 20
-    spawn bash -c {$SSHFS_CMD}
-    expect {
-        -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-            if { "$CURRENT_AUTO_2FA" == "true" } {
-                send "$OTP_CODE\r"
-                exp_continue
-            } else {
-                interact
+    [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ]
+}
+
+master_alive() {
+    ssh -S "$CONTROL_SOCKET" -O check "$REMOTE_TARGET" &>/dev/null
+}
+
+fresh_otp() {
+    local code waited=0
+    code=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+    while [ -n "$code" ] && [ "$code" = "$LAST_USED_OTP" ] && [ "$waited" -lt 35 ]; do
+        [ "$waited" -eq 0 ] && echo "Waiting for a fresh 2FA code..." >&2
+        sleep 1; waited=$((waited + 1))
+        code=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+    done
+    printf '%s' "$code"
+}
+
+start_master() {
+    master_alive && return 0
+    rm -f "$CONTROL_SOCKET"
+    mkdir -p "$CONTROL_DIR"; chmod 700 "$CONTROL_DIR"
+    local code="" auto="$USE_AUTO_2FA"
+    if [ "$auto" = true ] && [ -f "$GPG_ENC_FILE" ]; then
+        code=$(fresh_otp)
+        [ -z "$code" ] && auto=false
+    else
+        auto=false
+    fi
+    echo "Creating authenticated OzSTAR ControlMaster..."
+    CONTROL_SOCKET="$CONTROL_SOCKET" REMOTE_TARGET="$REMOTE_TARGET" OTP_CODE="$code" AUTO_2FA="$auto" expect -c '
+        set timeout 45
+        spawn ssh -M -S $env(CONTROL_SOCKET) -o ControlMaster=yes -o ControlPersist=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -f $env(REMOTE_TARGET)
+        expect {
+            -nocase -re {OzSTAR[[:space:]]+2FA code:} {
+                if {$env(AUTO_2FA) eq "true" && $env(OTP_CODE) ne ""} { send -- "$env(OTP_CODE)\r"; exp_continue } else { interact }
             }
-        }
-        -nocase "password:" {
-            interact {
-                -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-                    if { "$CURRENT_AUTO_2FA" == "true" } {
-                        send -- "$OTP_CODE\r"
-                    }
-                }
+            -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} {
+                if {$env(AUTO_2FA) eq "true" && $env(OTP_CODE) ne ""} { send -- "$env(OTP_CODE)\r"; exp_continue } else { interact }
             }
+            -nocase "password:" { interact }
+            "Are you sure you want to continue connecting" { send -- "yes\r"; exp_continue }
+            timeout { exit 124 }
+            eof { catch wait result; exit [lindex $result 3] }
         }
-        eof
-    }
-OUTER_EOF
-done
-echo "=== Mount synchronization script completed ==="
+    '
+    local rc=$?
+    [ "$rc" -eq 0 ] && master_alive
+}
+
+mount_healthy() {
+    local dir="$1"
+    mountpoint -q "$dir" && timeout 5 stat "$dir/." &>/dev/null
+}
+
+mount_one() {
+    local dir="$1"
+    if mount_healthy "$dir"; then return 0; fi
+    if mountpoint -q "$dir"; then
+        echo "Removing stale mount: $dir"
+        fusermount3 -uz "$dir" &>/dev/null || true
+        sleep 1
+    fi
+    if [ ! -d "$dir" ]; then
+        sudo mkdir -p "$dir" || return 1
+        sudo chown "$(whoami)":"$(whoami)" "$dir" || return 1
+    fi
+    echo "Mounting $dir through the ControlMaster..."
+    sshfs "${REMOTE_TARGET}:${dir}" "$dir" \
+        -o IdentityFile="$KEY_PATH" -o ControlPath="$CONTROL_SOCKET" \
+        -o ControlMaster=no -o BatchMode=yes -o workaround=rename \
+        -o reconnect -o ServerAliveInterval=15 -o ServerAliveCountMax=3
+    mount_healthy "$dir"
+}
+
+repair_mounts() {
+    load_agent || { echo "Error: no working ssh-agent." >&2; return 1; }
+    if ! master_alive; then
+        echo "ControlMaster is unavailable; rebuilding it."
+        for dir in "${SYNC_DIRS[@]}"; do
+            mountpoint -q "$dir" && fusermount3 -uz "$dir" &>/dev/null || true
+        done
+        start_master || { echo "Error: could not establish ControlMaster." >&2; return 1; }
+    fi
+    local failed=0
+    for dir in "${SYNC_DIRS[@]}"; do mount_one "$dir" || { echo "Error: failed to mount $dir" >&2; failed=1; }; done
+    return "$failed"
+}
+
+if [ "${1:-}" = "--watch" ]; then
+    echo "OzSTAR mount watchdog started (check interval: ${CHECK_INTERVAL}s)."
+    while true; do
+        repair_mounts
+        sleep "$CHECK_INTERVAL"
+    done
+else
+    repair_mounts
+fi
 REMOUNT_BLOCK
 chmod +x "$REMOUNT_SCRIPT"
 echo "Persistent script written successfully to: $REMOUNT_SCRIPT"
@@ -573,10 +573,45 @@ PATH_BLOCK
 fi
 echo ""
 # -------------------------------------------------------------------------
+# Step 4c: Install a user-level watchdog service
+# -------------------------------------------------------------------------
+echo "=== Step 4c: Installing persistent OzSTAR mount watchdog ==="
+if command -v systemctl &>/dev/null; then
+    USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
+    WATCHDOG_SERVICE="$USER_SYSTEMD_DIR/ozstar-mount-watchdog.service"
+    mkdir -p "$USER_SYSTEMD_DIR"
+    cat > "$WATCHDOG_SERVICE" <<SERVICE_EOF
+[Unit]
+Description=OzSTAR SSHFS mount watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$REMOUNT_SCRIPT --watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+SERVICE_EOF
+    systemctl --user daemon-reload
+    systemctl --user enable ozstar-mount-watchdog.service
+    echo "Watchdog service installed. It checks the mounts every 30 seconds."
+    echo "It will be started after the initial mount attempt below."
+else
+    echo "Warning: systemctl is unavailable; reconnect_ozstar remains usable manually."
+fi
+echo ""
+# -------------------------------------------------------------------------
 # Step 5: Execute the newly written file to trigger initial mounting
 # -------------------------------------------------------------------------
 echo "=== Step 5: Running Mount Operations ==="
 bash "$REMOUNT_SCRIPT"
+if command -v systemctl &>/dev/null && [ -f "$HOME/.config/systemd/user/ozstar-mount-watchdog.service" ]; then
+    systemctl --user restart ozstar-mount-watchdog.service
+    echo "OzSTAR mount watchdog is running."
+fi
 # -------------------------------------------------------------------------
 # Step 6: Inject automated sshoz shortcut into ~/.bashrc (CONDITIONAL)
 # -------------------------------------------------------------------------
