@@ -325,93 +325,53 @@ EOF
         echo "No 2fa_secret.gpg found in the remote home directory. Continuing without automated 2FA."
     fi
 else
-    # A local setup string WAS supplied and encrypted into $GPG_ENC_FILE.
-    # If the remote host doesn't already have a copy, push it up now so
-    # future connections (e.g. from other machines) can reuse it.
-    echo "Local 2FA setup string was provided. Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg..."
-    # Regenerate a fresh OTP right before use -- TOTP codes rotate (typically
-    # every ~30s), and the $OTP_CODE generated back in Step 3 may have
-    # expired by the time execution reaches here.
-    OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
-    STEP3B_CHECK2_EXP=$(mktemp /tmp/setup_ssh_step3b_check2.XXXXXX.exp)
-    cat > "$STEP3B_CHECK2_EXP" <<EOF
-set timeout 30
-spawn ssh -i "$KEY_PATH" "$FULL_REMOTE_TARGET" {[ -f "\$HOME/2fa_secret.gpg" ]}
-expect {
-    -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-        if { "$USE_AUTO_2FA" == "true" } {
-            send "$OTP_CODE\r"
-            exp_continue
-        } else {
-            interact
-        }
-    }
-    "Are you sure you want to continue connecting" {
-        send "yes\r"
-        exp_continue
-    }
-    -nocase "password:" {
-        interact {
-            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-                if { "$USE_AUTO_2FA" == "true" } {
-                    send -- "$OTP_CODE\r"
-                }
+    # Local 2FA secret exists. Create one authenticated ControlMaster here,
+    # then reuse it for the existence check, scp, and all SSHFS mounts.
+    CONTROL_DIR="$HOME/.ssh/controlmasters"
+    CONTROL_SOCKET="$CONTROL_DIR/ozstar-${OZSTAR_USER}"
+    mkdir -p "$CONTROL_DIR"
+    chmod 700 "$CONTROL_DIR"
+    echo "Local 2FA setup string was provided. Establishing/reusing an authenticated ControlMaster..."
+
+    if ! ssh -S "$CONTROL_SOCKET" -O check "$FULL_REMOTE_TARGET" &>/dev/null; then
+        rm -f "$CONTROL_SOCKET"
+        USED_OTP="$OTP_CODE"
+        OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+        WAITED=0
+        while [ -n "$OTP_CODE" ] && [ "$OTP_CODE" = "$USED_OTP" ] && [ "$WAITED" -lt 35 ]; do
+            [ "$WAITED" -eq 0 ] && echo "Waiting for a fresh 2FA code before creating the ControlMaster..."
+            sleep 1; WAITED=$((WAITED + 1))
+            OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+        done
+        CONTROL_SOCKET="$CONTROL_SOCKET" FULL_REMOTE_TARGET="$FULL_REMOTE_TARGET" OTP_CODE="$OTP_CODE" expect -c '
+            set timeout 45
+            spawn ssh -M -S $env(CONTROL_SOCKET) -o ControlMaster=yes -o ControlPersist=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -f $env(FULL_REMOTE_TARGET)
+            expect {
+                -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "$env(OTP_CODE)\r"; exp_continue }
+                -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "$env(OTP_CODE)\r"; exp_continue }
+                "Are you sure you want to continue connecting" { send -- "yes\r"; exp_continue }
+                timeout { exit 124 }
+                eof { catch wait result; exit [lindex $result 3] }
             }
-        }
-    }
-    eof
-}
-catch wait result
-exit [lindex \$result 3]
-EOF
-    expect "$STEP3B_CHECK2_EXP"
-    REMOTE_FILE_EXISTS=$?
-    rm -f "$STEP3B_CHECK2_EXP"
-    if [ "$REMOTE_FILE_EXISTS" -eq 0 ]; then
+        '
+    else
+        echo "Reusing existing authenticated OzSTAR ControlMaster."
+    fi
+
+    if ! ssh -S "$CONTROL_SOCKET" -O check "$FULL_REMOTE_TARGET" &>/dev/null; then
+        echo "Error: Could not establish authenticated ControlMaster." >&2
+        exit 1
+    fi
+
+    echo "Checking $FULL_REMOTE_TARGET for an existing ~/2fa_secret.gpg through the ControlMaster..."
+    if ssh -S "$CONTROL_SOCKET" -o ControlMaster=no -o BatchMode=yes "$FULL_REMOTE_TARGET" '[ -f "$HOME/2fa_secret.gpg" ]'; then
         echo "Remote host already has 2fa_secret.gpg. Leaving it unchanged."
     else
-        echo "No 2fa_secret.gpg found on remote host. Copying local copy there for future use..."
-        # Regenerate again -- the existence-check ssh call above may have
-        # consumed enough wall-clock time to roll over to the next TOTP window.
-        OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
-        STEP3B_PUSH_EXP=$(mktemp /tmp/setup_ssh_step3b_push.XXXXXX.exp)
-        cat > "$STEP3B_PUSH_EXP" <<EOF
-set timeout 30
-spawn scp -i "$KEY_PATH" "$GPG_ENC_FILE" {${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg}
-expect {
-    -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-        if { "$USE_AUTO_2FA" == "true" } {
-            send "$OTP_CODE\r"
-            exp_continue
-        } else {
-            interact
-        }
-    }
-    "Are you sure you want to continue connecting" {
-        send "yes\r"
-        exp_continue
-    }
-    -nocase "password:" {
-        interact {
-            -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-                if { "$USE_AUTO_2FA" == "true" } {
-                    send -- "$OTP_CODE\r"
-                }
-            }
-        }
-    }
-    eof
-}
-catch wait result
-exit [lindex \$result 3]
-EOF
-        expect "$STEP3B_PUSH_EXP"
-        SCP_STATUS=$?
-        rm -f "$STEP3B_PUSH_EXP"
-        if [ "$SCP_STATUS" -eq 0 ]; then
+        echo "No 2fa_secret.gpg found on remote host. Copying local copy through the ControlMaster..."
+        if scp -o ControlPath="$CONTROL_SOCKET" -o ControlMaster=no -o BatchMode=yes "$GPG_ENC_FILE" "${FULL_REMOTE_TARGET}:/home/$OZSTAR_USER/2fa_secret.gpg"; then
             echo "Copied $GPG_ENC_FILE to ${FULL_REMOTE_TARGET}:~/2fa_secret.gpg"
         else
-            echo "Warning: Failed to copy 2FA secret to remote host. You can retry this manually later."
+            echo "Warning: Failed to copy 2FA secret through the ControlMaster."
         fi
     fi
 fi
@@ -430,118 +390,53 @@ printf 'GPG_ENC_FILE="%s"\n' "$GPG_ENC_FILE" >> "$REMOUNT_SCRIPT"
 printf 'USE_AUTO_2FA="%s"\n\n' "$USE_AUTO_2FA" >> "$REMOUNT_SCRIPT"
 # Append directory arrays and operational logic safely
 cat << 'REMOUNT_BLOCK' >> "$REMOUNT_SCRIPT"
-SYNC_DIRS=(
-    "/fred"
-    "/dagg"
-    "/home/${OZSTAR_USER}"
-)
+SYNC_DIRS=("/fred" "/dagg" "/home/${OZSTAR_USER}")
+CONTROL_DIR="$HOME/.ssh/controlmasters"
+CONTROL_SOCKET="$CONTROL_DIR/ozstar-${OZSTAR_USER}"
+REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
+mkdir -p "$CONTROL_DIR"; chmod 700 "$CONTROL_DIR"
+
+# During setup Step 3b has already authenticated this master. On a later
+# reconnect_ozstar invocation, recreate it only when necessary.
+if ! ssh -S "$CONTROL_SOCKET" -O check "$REMOTE_TARGET" &>/dev/null; then
+    echo "ControlMaster is unavailable. Creating a new authenticated master..."
+    rm -f "$CONTROL_SOCKET"
+    OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
+    [ -z "$OTP_CODE" ] && { echo "Error: Could not generate 2FA code." >&2; exit 1; }
+    CONTROL_SOCKET="$CONTROL_SOCKET" REMOTE_TARGET="$REMOTE_TARGET" OTP_CODE="$OTP_CODE" expect -c '
+        set timeout 45
+        spawn ssh -M -S $env(CONTROL_SOCKET) -o ControlMaster=yes -o ControlPersist=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -f $env(REMOTE_TARGET)
+        expect {
+            -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "$env(OTP_CODE)\r"; exp_continue }
+            -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "$env(OTP_CODE)\r"; exp_continue }
+            "Are you sure you want to continue connecting" { send -- "yes\r"; exp_continue }
+            timeout { exit 124 }
+            eof { catch wait result; exit [lindex $result 3] }
+        }
+    '
+fi
+ssh -S "$CONTROL_SOCKET" -O check "$REMOTE_TARGET" &>/dev/null || { echo "Error: ControlMaster unavailable." >&2; exit 1; }
+echo "Reusing authenticated OzSTAR ControlMaster for SSHFS mounts."
+
 for DIR in "${SYNC_DIRS[@]}"; do
-    echo "-------------------------------------------------------"
-    echo "Mounting Path: $DIR"
-    echo "-------------------------------------------------------"
-    if [ -d "$DIR" ]; then
-        echo "Directory $DIR already exists. Skipping creation."
-        if mountpoint -q "$DIR" &>/dev/null; then
-            fusermount3 -u "$DIR" &>/dev/null
-        fi
-    else
+    echo "-------------------------------------------------------"; echo "Mounting Path: $DIR"; echo "-------------------------------------------------------"
+    if [ ! -d "$DIR" ]; then
         echo "Directory $DIR does not exist. Creating it (requires sudo for top-level paths)..."
-        sudo mkdir -p "$DIR"
-        sudo chown "$(whoami)":"$(whoami)" "$DIR"
+        sudo mkdir -p "$DIR" && sudo chown "$(whoami)":"$(whoami)" "$DIR"
+    elif mountpoint -q "$DIR" &>/dev/null; then
+        fusermount3 -u "$DIR" &>/dev/null || fusermount3 -uz "$DIR" &>/dev/null
     fi
-    CURRENT_AUTO_2FA="$USE_AUTO_2FA"
-    if [ "$CURRENT_AUTO_2FA" = true ]; then
-        if [ -f "$GPG_ENC_FILE" ]; then
-            OTP_CODE=$(gpg -q -d "$GPG_ENC_FILE" 2>/dev/null | oathtool --base32 --totp - 2>/dev/null)
-            if [ -z "$OTP_CODE" ]; then
-                echo "Warning: Token generation failed. Falling back to manual entry for this path."
-                CURRENT_AUTO_2FA=false
-            fi
-        else
-            echo "Warning: Persistent GPG secret file missing. Falling back to manual entry."
-            CURRENT_AUTO_2FA=false
-        fi
-    fi
-    # Re-attach this (sub)shell to the persistent keychain-managed ssh-agent
-    # so SSH_AUTH_SOCK is set before sshfs is spawned, letting it use the
-    # already-unlocked key instead of needing the passphrase typed again.
-    KEYCHAIN_SH="$HOME/.keychain/$(hostname)-sh"
-    if [ -f "$KEYCHAIN_SH" ]; then
-        # shellcheck disable=SC1090
-        source "$KEYCHAIN_SH"
-    fi
-    # Validate the socket is actually live -- keychain only confirms the
-    # recorded agent PID is still running, not that its socket file still
-    # exists. If /tmp was cleared since the agent was started (session
-    # recycle, reboot) but the PID got reused by something else, keychain
-    # will hand back a path to a socket that no longer exists. In that
-    # case, clear the stale state and start a genuinely fresh agent,
-    # prompting interactively for the key passphrase if needed.
-    if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-        echo "Warning: keychain agent socket is stale or missing. Restarting agent..."
-        keychain --stop all &>/dev/null
-        rm -f "$HOME/.keychain/$(hostname)" "$HOME/.keychain/$(hostname)-sh" "$HOME/.keychain/$(hostname)-csh" 2>/dev/null
-        expect -c "
-            set timeout 15
-            spawn keychain --quiet --agents ssh \"$KEY_PATH\"
-            expect {
-                -nocase \"Enter passphrase\" {
-                    interact
-                }
-                eof
-            }
-        "
-        if [ -f "$KEYCHAIN_SH" ]; then
-            # shellcheck disable=SC1090
-            source "$KEYCHAIN_SH"
-        fi
-        if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-            echo "Error: Still no working agent socket for $DIR. sshfs mount below will likely fail to authenticate." >&2
-        fi
-    fi
-    # sshfs via the system OpenSSH client -- it picks up SSH_AUTH_SOCK (and
-    # thus the already-unlocked keychain-managed key) the same way plain
-    # ssh/scp do, with no equivalent of rclone's key_file+key_use_agent bug.
-    #
-    # NOTE: sshfs does NOT support a standalone `-i <path>` flag the way
-    # ssh/scp do. Passing -i directly confuses its argument parser and
-    # causes it to misread the mountpoint as an unexpected extra argument
-    # ("invalid argument `/fred'"). The identity file must instead be
-    # passed through sshfs's generic -o option mechanism as
-    # -o IdentityFile=<path>.
-    #
-    # NOTE: SSHFS_CMD contains embedded double quotes (around the socket
-    # path and key path). Passing it to Tcl as `spawn bash -c "$SSHFS_CMD"`
-    # would close the Tcl string early once bash substitutes the quotes in
-    # ("extra characters after close-quote"). Using Tcl brace-quoting
-    # `{$SSHFS_CMD}` instead avoids this: bash still expands the variable
-    # before Tcl parses the line, but braces make Tcl treat the whole
-    # expanded text (quotes included) as one literal argument.
-    SSHFS_CMD="env SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK\" sshfs -o IdentityFile=\"$KEY_PATH\" ${OZSTAR_USER}@${REMOTE_HOST}:${DIR} ${DIR} -o workaround=rename -o reconnect -o ServerAliveInterval=15"
-    expect <<OUTER_EOF
-    set timeout 20
-    spawn bash -c {$SSHFS_CMD}
-    expect {
-        -nocase -re "(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-            if { "$CURRENT_AUTO_2FA" == "true" } {
-                send "$OTP_CODE\r"
-                exp_continue
-            } else {
-                interact
-            }
-        }
-        -nocase "password:" {
-            interact {
-                -o -re "(?i)(verification code|otp|one-time password|token|passcode|2fa code|2fa):" {
-                    if { "$CURRENT_AUTO_2FA" == "true" } {
-                        send -- "$OTP_CODE\r"
-                    }
-                }
-            }
-        }
-        eof
-    }
-OUTER_EOF
+    sshfs "${REMOTE_TARGET}:${DIR}" "$DIR" \
+        -o IdentityFile="$KEY_PATH" \
+        -o ControlPath="$CONTROL_SOCKET" \
+        -o ControlMaster=no \
+        -o BatchMode=yes \
+        -o workaround=rename \
+        -o reconnect \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=3
+    rc=$?
+    if [ "$rc" -eq 0 ] && mountpoint -q "$DIR"; then echo "Mounted $DIR successfully through the ControlMaster."; else echo "Error: sshfs mount failed for $DIR (status $rc)." >&2; fi
 done
 echo "=== Mount synchronization script completed ==="
 REMOUNT_BLOCK
