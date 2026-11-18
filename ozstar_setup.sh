@@ -231,7 +231,7 @@ start_master() {
     master_alive && return 0
     rm -f "$CONTROL_SOCKET"
     local otp
-    read -r -s -p "Enter a fresh OzSTAR 2FA code: " otp
+    read -r -p "Enter a fresh OzSTAR 2FA code: " otp
     echo
     if ! [[ "$otp" =~ ^[0-9]{6}$ ]]; then
         echo "Error: the 2FA code must contain exactly six digits." >&2
@@ -324,7 +324,7 @@ sshoz() {
     if ! ssh -S "\$control_socket" -O check "\$remote_target" >/dev/null 2>&1; then
         echo "OzSTAR ControlMaster is unavailable."
         local otp
-        read -r -s -p "Enter a fresh OzSTAR 2FA code: " otp
+        read -r -p "Enter a fresh OzSTAR 2FA code: " otp
         echo
         if ! [[ "\$otp" =~ ^[0-9]{6}\$ ]]; then
             echo "Error: the 2FA code must contain exactly six digits." >&2
