@@ -26,7 +26,7 @@ Once the VM has started, click on the 'LXTerminal' icon at the bottom left corne
 
 ![plot](./VM_terminal_screenshot.png)
 
-Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your <ins>ozstar</ins> username and password, a passphrase for the ssh key, and the 2FA code from your phone when prompted:
+Run the following line in the terminal (use Ctrl-Shift-v to paste), and enter your <ins>ozstar</ins> username and password, a passphrase for the ssh key (twice), and the 2FA code from your phone when prompted:
 
 ```
 curl -Ls https://raw.githubusercontent.com/SwinburneNeuroimaging/swinburne_tools/main/ozstar_setup.sh > /tmp/tmp.sh; source /tmp/tmp.sh
