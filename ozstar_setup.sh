@@ -77,11 +77,11 @@ fi
 unset KEY_PASSPHRASE_CONFIRM
 
 read -r -p "Enter the current OzSTAR 2FA code: " OTP_CODE
+while ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; do
+    echo "The OzSTAR 2FA code must contain exactly six digits."
+    read -r -p "Enter the current OzSTAR 2FA code again: " OTP_CODE
+done
 echo
-if ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; then
-    echo "Error: the OzSTAR 2FA code must contain exactly six digits." >&2
-    return
-fi
 
 REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
 CONTROL_SOCKET="$CONTROL_DIR/ozstar-${OZSTAR_USER}"
@@ -94,6 +94,20 @@ OZSTAR_PASSWORD="$OZSTAR_PASSWORD" OTP_CODE="$OTP_CODE" REMOTE_TARGET="$REMOTE_T
     set timeout 60
     set password $env(OZSTAR_PASSWORD)
     set otp $env(OTP_CODE)
+    set otp_attempts 0
+    proc send_otp {} {
+        global otp otp_attempts
+        if {$otp_attempts > 0} {
+            while {1} {
+                send_user "\nThe previous 2FA code was rejected or expired. Enter a new six-digit OzSTAR 2FA code: "
+                expect_user -re {([0-9]{6})\r?\n}
+                set otp $expect_out(1,string)
+                if {[string length $otp] == 6} { break }
+            }
+        }
+        incr otp_attempts
+        send -- "$otp\r"
+    }
     spawn ssh -M -S $env(CONTROL_SOCKET) \
         -o ControlMaster=yes -o ControlPersist=yes \
         -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
@@ -109,11 +123,11 @@ OZSTAR_PASSWORD="$OZSTAR_PASSWORD" OTP_CODE="$OTP_CODE" REMOTE_TARGET="$REMOTE_T
             exp_continue
         }
         -nocase -re {OzSTAR[[:space:]]+2FA code:} {
-            send -- "$otp\r"
+            send_otp
             exp_continue
         }
         -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} {
-            send -- "$otp\r"
+            send_otp
             exp_continue
         }
         timeout {
@@ -240,14 +254,29 @@ start_master() {
     CONTROL_SOCKET="$CONTROL_SOCKET" REMOTE_TARGET="$REMOTE_TARGET" OTP_CODE="$otp" expect -c '
         log_user 1
         set timeout 60
+        set otp $env(OTP_CODE)
+        set otp_attempts 0
+        proc send_otp {} {
+            global otp otp_attempts
+            if {$otp_attempts > 0} {
+                while {1} {
+                    send_user "\nThe previous 2FA code was rejected or expired. Enter a new six-digit OzSTAR 2FA code: "
+                    expect_user -re {([0-9]{6})\r?\n}
+                    set otp $expect_out(1,string)
+                    if {[string length $otp] == 6} { break }
+                }
+            }
+            incr otp_attempts
+            send -- "$otp\r"
+        }
         spawn ssh -M -S $env(CONTROL_SOCKET) \
             -o ControlMaster=yes -o ControlPersist=yes \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
             -N -f $env(REMOTE_TARGET)
         expect {
             "Are you sure you want to continue connecting" { send -- "yes\r"; exp_continue }
-            -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "$env(OTP_CODE)\r"; exp_continue }
-            -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "$env(OTP_CODE)\r"; exp_continue }
+            -nocase -re {OzSTAR[[:space:]]+2FA code:} { send_otp; exp_continue }
+            -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send_otp; exp_continue }
             -nocase -re {password:} { interact }
             timeout { return }
             eof { catch wait result; exit [lindex $result 3] }
@@ -334,11 +363,26 @@ sshoz() {
         CONTROL_SOCKET="\$control_socket" REMOTE_TARGET="\$remote_target" OTP_CODE="\$otp" expect -c '
             log_user 1
             set timeout 60
+            set otp \$env(OTP_CODE)
+            set otp_attempts 0
+            proc send_otp {} {
+                global otp otp_attempts
+                if {\$otp_attempts > 0} {
+                    while {1} {
+                        send_user "\nThe previous 2FA code was rejected or expired. Enter a new six-digit OzSTAR 2FA code: "
+                        expect_user -re {([0-9]{6})\r?\n}
+                        set otp \$expect_out(1,string)
+                        if {[string length \$otp] == 6} { break }
+                    }
+                }
+                incr otp_attempts
+                send -- "\$otp\r"
+            }
             spawn ssh -M -S \$env(CONTROL_SOCKET) -o ControlMaster=yes -o ControlPersist=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -f \$env(REMOTE_TARGET)
             expect {
                 "Are you sure you want to continue connecting" { send -- "yes\\r"; exp_continue }
-                -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "\$env(OTP_CODE)\\r"; exp_continue }
-                -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "\$env(OTP_CODE)\\r"; exp_continue }
+                -nocase -re {OzSTAR[[:space:]]+2FA code:} { send_otp; exp_continue }
+                -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send_otp; exp_continue }
                 -nocase -re {password:} { interact }
                 timeout { return }
                 eof { catch wait result; exit [lindex \$result 3] }
