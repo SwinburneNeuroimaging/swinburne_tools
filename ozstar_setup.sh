@@ -76,7 +76,7 @@ if [ "$KEY_PASSPHRASE" != "$KEY_PASSPHRASE_CONFIRM" ]; then
 fi
 unset KEY_PASSPHRASE_CONFIRM
 
-read -r -s -p "Enter the current OzSTAR 2FA code: " OTP_CODE
+read -r -p "Enter the current OzSTAR 2FA code: " OTP_CODE
 echo
 if ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; then
     echo "Error: the OzSTAR 2FA code must contain exactly six digits." >&2
