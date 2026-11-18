@@ -44,7 +44,7 @@ install_required_components() {
     fi
     echo "Required components installed successfully."
 }
-install_required_components || exit 1
+install_required_components || return
 
 mkdir -p "$HOME/.ssh" "$CONTROL_DIR" "$HOME/.local/bin"
 chmod 700 "$HOME/.ssh" "$CONTROL_DIR"
@@ -72,7 +72,7 @@ read -r -s -p "Confirm the SSH key passphrase: " KEY_PASSPHRASE_CONFIRM
 echo
 if [ "$KEY_PASSPHRASE" != "$KEY_PASSPHRASE_CONFIRM" ]; then
     echo "Error: SSH key passphrases do not match." >&2
-    exit 1
+    return
 fi
 unset KEY_PASSPHRASE_CONFIRM
 
@@ -80,7 +80,7 @@ read -r -s -p "Enter the current OzSTAR 2FA code: " OTP_CODE
 echo
 if ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; then
     echo "Error: the OzSTAR 2FA code must contain exactly six digits." >&2
-    exit 1
+    return
 fi
 
 REMOTE_TARGET="${OZSTAR_USER}@${REMOTE_HOST}"
@@ -118,7 +118,7 @@ OZSTAR_PASSWORD="$OZSTAR_PASSWORD" OTP_CODE="$OTP_CODE" REMOTE_TARGET="$REMOTE_T
         }
         timeout {
             puts stderr "Error: timed out while authenticating the initial ControlMaster."
-            exit 124
+            return
         }
         eof {
             catch wait result
@@ -131,7 +131,7 @@ unset OZSTAR_PASSWORD OTP_CODE
 if [ "$MASTER_STATUS" -ne 0 ] || ! ssh -S "$CONTROL_SOCKET" -O check "$REMOTE_TARGET" >/dev/null 2>&1; then
     echo "Error: failed to establish the initial OzSTAR ControlMaster." >&2
     rm -f "$CONTROL_SOCKET"
-    exit 1
+    return
 fi
 echo "Initial authenticated ControlMaster established."
 
@@ -177,7 +177,7 @@ unset KEY_PASSPHRASE
 [ -f "$KEYCHAIN_SH" ] && source "$KEYCHAIN_SH"
 if ! ssh-add -l >/dev/null 2>&1; then
     echo "Error: the SSH key was not loaded into the keychain-managed agent." >&2
-    exit 1
+    return
 fi
 echo "SSH key loaded into the keychain-managed ssh-agent."
 
@@ -195,7 +195,7 @@ printf '%s\n' "$PUBKEY" | ssh -S "$CONTROL_SOCKET" -o ControlMaster=no -o BatchM
 '
 if [ "$?" -ne 0 ]; then
     echo "Error: failed to install the public key through the ControlMaster." >&2
-    exit 1
+    return
 fi
 echo "Public key installed on OzSTAR."
 
@@ -249,7 +249,7 @@ start_master() {
             -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "$env(OTP_CODE)\r"; exp_continue }
             -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "$env(OTP_CODE)\r"; exp_continue }
             -nocase -re {password:} { interact }
-            timeout { exit 124 }
+            timeout { return }
             eof { catch wait result; exit [lindex $result 3] }
         }
     '
@@ -293,7 +293,7 @@ mount_one() {
 load_agent
 if ! start_master; then
     echo "Error: could not establish the OzSTAR ControlMaster." >&2
-    exit 1
+    return
 fi
 
 failed=0
@@ -340,7 +340,7 @@ sshoz() {
                 -nocase -re {OzSTAR[[:space:]]+2FA code:} { send -- "\$env(OTP_CODE)\\r"; exp_continue }
                 -nocase -re {(verification code|otp|one-time password|token|passcode|2fa code|2fa):} { send -- "\$env(OTP_CODE)\\r"; exp_continue }
                 -nocase -re {password:} { interact }
-                timeout { exit 124 }
+                timeout { return }
                 eof { catch wait result; exit [lindex \$result 3] }
             }
         '
