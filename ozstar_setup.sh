@@ -62,18 +62,23 @@ while [ -z "$OZSTAR_PASSWORD" ]; do
     echo
 done
 
-read -r -s -p "Enter a passphrase for the new SSH key: " KEY_PASSPHRASE
-echo
-while [ -z "$KEY_PASSPHRASE" ]; do
-    read -r -s -p "SSH key passphrase cannot be empty. Enter it again: " KEY_PASSPHRASE
+while true; do
+    read -r -s -p "Enter a passphrase for the new SSH key: " KEY_PASSPHRASE
     echo
+    if [ -z "$KEY_PASSPHRASE" ]; then
+        echo "SSH key passphrase cannot be empty. Please try again."
+        continue
+    fi
+
+    read -r -s -p "Confirm the SSH key passphrase: " KEY_PASSPHRASE_CONFIRM
+    echo
+    if [ "$KEY_PASSPHRASE" != "$KEY_PASSPHRASE_CONFIRM" ]; then
+        echo "SSH key passphrases do not match. Please enter both again."
+        continue
+    fi
+
+    break
 done
-read -r -s -p "Confirm the SSH key passphrase: " KEY_PASSPHRASE_CONFIRM
-echo
-if [ "$KEY_PASSPHRASE" != "$KEY_PASSPHRASE_CONFIRM" ]; then
-    echo "Error: SSH key passphrases do not match." >&2
-    return
-fi
 unset KEY_PASSPHRASE_CONFIRM
 
 read -r -p "Enter the current OzSTAR 2FA code: " OTP_CODE
