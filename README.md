@@ -39,6 +39,12 @@ reconnect_ozstar
 ```
 in a terminal to reconnect to ozstar at any time.
 
+To open a shell to ozstar (i.e. log in over ssh), just type
+```
+sshoz
+```
+You may occasionally get prompted for a 2FA code (or the passphrase you entered), both with this and the 'reconnect_ozstar' commands, but (hopefully) not often.
+
 # Using the mne coreg utility
 
 1. ~~This first step only needs to be done once on a new virtual machine. Click on the menu button on the bottom left corner of the screen and navigate to the 'mneextended 1.1.0' link.~~
